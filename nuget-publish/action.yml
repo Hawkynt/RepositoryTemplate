@@ -1,0 +1,117 @@
+name: Publish to NuGet (Trusted Publishing)
+description: >-
+  Log in to nuget.org with GitHub OIDC Trusted Publishing (falling back to a stored API key when no
+  policy is configured), push every .nupkg and .snupkg in a directory, then wait until each package
+  is actually available and fail if one was accepted but never published.
+
+inputs:
+  packages-path:
+    description: Directory containing the .nupkg (and optional .snupkg) files to push.
+    required: true
+  user:
+    description: nuget.org account name for Trusted Publishing (the NUGET_USER secret).
+    required: false
+    default: ""
+  nuget-token:
+    description: >-
+      Fallback nuget.org API key, used only when no Trusted Publishing policy is configured for this
+      repository and workflow file.
+    required: false
+    default: ""
+  source:
+    description: NuGet push source.
+    required: false
+    default: https://api.nuget.org/v3/index.json
+  timeout-seconds:
+    description: How long to wait for each package to become available before failing the run.
+    required: false
+    default: "900"
+
+runs:
+  using: composite
+  steps:
+    # Trusted Publishing: nuget.org exchanges the job's GitHub OIDC token for an API key valid one
+    # hour, so no long-lived secret has to exist. It needs a policy on nuget.org (your username ▸
+    # Trusted Publishing) naming this repository and the workflow file that calls this action, plus
+    # the caller job granting `permissions: id-token: write`. Until the policy exists this step fails
+    # and the push falls back to the supplied nuget-token.
+    - name: NuGet login (OIDC → short-lived key)
+      id: nugetlogin
+      continue-on-error: true
+      uses: NuGet/login@v1
+      with:
+        user: ${{ inputs.user }}
+
+    - name: Push to NuGet
+      shell: bash
+      env:
+        OIDC_KEY: ${{ steps.nugetlogin.outputs.NUGET_API_KEY }}
+        NUGET_TOKEN: ${{ inputs.nuget-token }}
+        PKG_DIR: ${{ inputs.packages-path }}
+        SOURCE: ${{ inputs.source }}
+      run: |
+        if [ -n "$OIDC_KEY" ]; then
+          echo "Publishing with a short-lived Trusted Publishing key."
+          KEY="$OIDC_KEY"
+        elif [ -n "$NUGET_TOKEN" ]; then
+          echo "::warning::Trusted Publishing is not configured; falling back to the stored API key."
+          KEY="$NUGET_TOKEN"
+        else
+          echo "::error::No publishing credential — configure Trusted Publishing or pass nuget-token."
+          exit 1
+        fi
+
+        shopt -s nullglob
+        pkgs=("$PKG_DIR"/*.nupkg)
+        if [ ${#pkgs[@]} -eq 0 ]; then
+          echo "::error::No .nupkg files found in $PKG_DIR; nothing to push."
+          exit 1
+        fi
+        for pkg in "${pkgs[@]}"; do
+          echo "Pushing $(basename "$pkg")"
+          dotnet nuget push "$pkg" --api-key "$KEY" --source "$SOURCE" --skip-duplicate
+        done
+
+        # Symbol packages ride along when present; skip-duplicate absorbs any already accepted above.
+        for sym in "$PKG_DIR"/*.snupkg; do
+          echo "Pushing $(basename "$sym")"
+          dotnet nuget push "$sym" --api-key "$KEY" --source "$SOURCE" --skip-duplicate
+        done
+
+    # "Your package was pushed" only means nuget.org accepted it for validation. A package can be
+    # accepted and then never become available — it fails validation later — while the push exited 0.
+    # Without this wait a rejected package produces a green release.
+    - name: Wait for the packages to become available
+      shell: bash
+      env:
+        PKG_DIR: ${{ inputs.packages-path }}
+        TIMEOUT: ${{ inputs.timeout-seconds }}
+      run: |
+        attempts=$(( TIMEOUT / 15 ))
+        [ "$attempts" -lt 1 ] && attempts=1
+        fail=0
+        for pkg in "$PKG_DIR"/*.nupkg; do
+          base=$(basename "$pkg" .nupkg)
+          # "Id.1.2.3.4" -> id, version. The version is the trailing dotted-numeric run.
+          version=$(echo "$base" | grep -oE '[0-9]+(\.[0-9]+)*$')
+          id=${base%.$version}
+          lower=$(echo "$id" | tr '[:upper:]' '[:lower:]')
+
+          echo "Waiting for $id $version…"
+          found=0
+          for _ in $(seq 1 "$attempts"); do
+            if curl -sf "https://api.nuget.org/v3-flatcontainer/$lower/index.json" \
+                 | grep -q "\"$version\""; then
+              echo "  available"
+              found=1
+              break
+            fi
+            sleep 15
+          done
+
+          if [ "$found" -ne 1 ]; then
+            echo "::error::$id $version was pushed but never became available on nuget.org — it likely failed validation. Check the rejection mail on the nuget.org account."
+            fail=1
+          fi
+        done
+        exit $fail
