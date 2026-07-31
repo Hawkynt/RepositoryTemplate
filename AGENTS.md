@@ -6,9 +6,9 @@ house standard; rewrite the "What this is" section for the concrete project and 
 
 ## What this is
 
-<!-- One paragraph: what the project is, its stack (e.g. cross-platform C# .NET 8), the solution
+<!-- One paragraph: what the project is, its stack (e.g. cross-platform C# .NET 10), the solution
      name, and the project layout at the repo root — Core / Cli / Ui / Tests. -->
-A C# (.NET 8) project. Solution `ProjectName.sln`; project folders sit at the repo root —
+A C# (.NET 10) project. Solution `ProjectName.sln`; project folders sit at the repo root —
 `ProjectName.Core` / `.Cli` / `.Ui` (apps) and `ProjectName.Tests` (NUnit).
 
 **The README is a forward-looking specification** — it is authoritative. When code and spec disagree,
