@@ -1,0 +1,45 @@
+name: CI
+
+# Rename ProjectName.sln below to this repo's solution. The `if:` guard keeps the job from running
+# in the RepositoryTemplate repo itself (no solution to build); it is harmless in generated repos
+# because their repository name never equals the template's.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_call: {}
+
+# Force JavaScript-based actions to run on Node 24 instead of the deprecated Node 20 ahead of
+# the 2026-06-16 hard cutover, until we bump each action to a Node-24-native major version.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  test:
+    if: ${{ github.repository != 'Hawkynt/RepositoryTemplate' }}
+    name: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0                          # version.pl needs full history
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Restore
+        run: dotnet restore ProjectName.sln
+      - name: Build
+        run: dotnet build ProjectName.sln --configuration Release --no-restore
+      - name: Test
+        run: dotnet test ProjectName.sln --configuration Release --no-build --logger "trx;LogFileName=tests.trx"
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.os }}
+          path: '**/TestResults/*.trx'

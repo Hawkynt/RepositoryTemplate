@@ -1,0 +1,49 @@
+# Build results
+[Bb]in/
+[Oo]bj/
+[Oo]ut/
+[Ll]og/
+[Ll]ogs/
+artifacts/
+dist/
+stage/
+publish/
+
+# .NET user / IDE files
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+.vs/
+.vscode/
+.idea/
+*.DotSettings.user
+_ReSharper*/
+
+# Test / coverage output
+[Tt]est[Rr]esults/
+**/TestResults/
+coverage/
+*.coverage
+*.coveragexml
+*.trx
+
+# NuGet
+*.nupkg
+*.snupkg
+**/[Pp]ackages/*
+!**/[Pp]ackages/build/
+.nuget/
+
+# Rider / MonoDevelop
+*.userprefs
+*.pidb
+
+# OS cruft
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Local secrets — never commit
+*.env
+secrets.json
