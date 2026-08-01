@@ -44,6 +44,48 @@ coverage/
 Thumbs.db
 desktop.ini
 
+# Rust
+/target/
+**/*.rs.bk
+# Cargo.lock: ignored for libraries, COMMITTED for binaries — drop the next line for an app.
+Cargo.lock
+
+# C / C++
+build/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dylib
+*.exe
+*.out
+
+# Perl
+blib/
+pm_to_blib
+MYMETA.*
+Makefile.old
+*.bs
+!Makefile.PL
+
+# PHP
+/vendor/
+composer.phar
+.phpunit.result.cache
+
+# QuickBASIC / PowerBASIC
+*.OBJ
+*.EXE
+*.MAP
+*.PBR
+*.BAK
+
 # Local secrets — never commit
 *.env
 secrets.json

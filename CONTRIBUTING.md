@@ -50,9 +50,14 @@ Workflows live in `.github/workflows/`:
 | `nightly.yml` | automatically after green CI on `main` | Dated `nightly-YYYYMMDD` prerelease, GFS-pruned. |
 | `release.yml` | manual dispatch | Cuts a dated `vYYYYMMDD` release; publishes NuGet packages when configured. |
 
-Versions come from files, not git tags — `scripts/version.pl` stamps each project's `<Version>` with
-its folder's commit count. To validate workflow edits, [`actionlint`](https://github.com/rhysd/actionlint)
-is the recommended linter:
+Versions come from files, not git tags: the shared `stamp-version` action stamps each manifest with
+its own folder's commit count, so sibling packages version independently, while the repo-level marker
+is simply the date (`vYYYYMMDD` / `nightly-YYYYMMDD`). The versioning, changelog and prune scripts
+live in `Hawkynt/RepositoryTemplate` and reach this repo through composite actions — there is no
+`scripts/` directory here to keep in sync.
+
+To validate workflow edits, [`actionlint`](https://github.com/rhysd/actionlint) is the recommended
+linter:
 
 ```bash
 actionlint .github/workflows/*.yml

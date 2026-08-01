@@ -23,8 +23,45 @@
 | `.gitignore` | .NET / IDE / test / NuGet ignores. |
 | `Directory.Build.props` | Central TFM, nullable, and package/authorship metadata. |
 | `.github/FUNDING.yml` | Sponsors + PayPal button (pairs with the README `## ❤️ Support` section). |
-| `.github/workflows/` | `ci` · `_build` · `nightly` · `release` plus `scripts/{version.pl, update-changelog.mjs, prune-nightlies.mjs}`. |
+| `.github/workflows/` | `ci` · `_build` · `nightly` · `release` — thin, and they call the actions below. |
+| `scripts/` | `version.pl`, `update-changelog.mjs`, `prune-nightlies.mjs` — the single copy, used by the actions. |
 | `nuget-publish/` | Composite action: Trusted Publishing push with an acceptance check. |
+| `stamp-version/` | Composite action: stamp per-package versions from files. |
+| `release-notes/` | Composite action: commit-prefix changelog / release notes. |
+| `prune-nightlies/` | Composite action: GFS prune of old nightly releases. |
+
+**Generated repos carry no `scripts/` directory.** The three scripts live here once and reach every
+repo through the composite actions, so they cannot drift out of sync.
+
+## 🔢 Versioning model
+
+Two independent numbers, and they answer different questions:
+
+- **Repo marker** — releases tag `vYYYYMMDD`, nightlies `nightly-YYYYMMDD`. Never derived from a git
+  tag's contents; it is just the date the release was cut.
+- **Package version** — `MAJOR.MINOR.PATCH` from the package's own manifest, plus a build number that
+  is **the commit count of that manifest's parent folder**. Two NuGet packages in sibling folders
+  therefore get different build numbers reflecting only their own churn, and a package whose folder
+  did not change composes the identical version again — so `--skip-duplicate` re-uses what is already
+  published instead of republishing everything.
+
+`scripts/version.pl` reads the base from whichever manifest a repo actually has:
+
+| Stack | File | Field | Composed |
+|---|---|---|---|
+| .NET | `*.csproj` / `Directory.Build.props` | `<Version>` | `X.Y.Z.BUILD` |
+| Node | `package.json` | `"version"` | `X.Y.Z+BUILD` |
+| PHP | `composer.json` | `"version"` | `X.Y.Z+BUILD` |
+| Rust | `Cargo.toml` | `[package] version` | `X.Y.Z+BUILD` |
+| Perl | `*.pm` | `$VERSION` | `X.Y.Z.BUILD` |
+| C/C++ | `CMakeLists.txt` | `project(… VERSION …)` | `X.Y.Z.BUILD` |
+| QuickBASIC | `*.SUB` / `*.BAS` | `%…_VERSION_MAJOR/_MINOR/_PATCH` | `X.Y.Z.BUILD` |
+| any | root `VERSION` | the file's contents | `X.Y.Z.BUILD` |
+
+Node, PHP and Rust are SemVer, which rejects a fourth numeric component, so their build number lands
+in build metadata (`+BUILD`). A repo with no manifest of its own just needs a root `VERSION` file.
+`.NET` projects may inherit their base from the nearest ancestor `Directory.Build.props`; the build
+number then follows the *declaring* file's folder.
 
 ## 🚀 Use this template
 

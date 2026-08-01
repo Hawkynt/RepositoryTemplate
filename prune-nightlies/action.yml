@@ -1,0 +1,19 @@
+name: Prune nightlies
+description: >-
+  Grandfather-father-son prune of old nightly releases (keeps 7 daily, 4 weekly, 3 monthly), so the
+  releases page does not accumulate one prerelease per day forever.
+
+inputs:
+  github-token:
+    description: Token used to list and delete nightly releases.
+    required: false
+    default: ${{ github.token }}
+
+runs:
+  using: composite
+  steps:
+    - name: Prune
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: node "${{ github.action_path }}/../scripts/prune-nightlies.mjs"

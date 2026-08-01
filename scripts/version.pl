@@ -12,27 +12,47 @@
 #  (recursive) — so a version advances by how much the directory that declares
 #  it actually changed; a repo-root declaration gets the whole-repo count.
 #
-#  PREFERRED LAYOUT for NuGet packages: own folder + own <Version>. An
+#  This is what makes multi-package repos work: two NuGet packages in their own
+#  folders get DIFFERENT build numbers, each reflecting only its own churn. An
 #  untouched folder composes the IDENTICAL version on the next release, so
 #  `dotnet nuget push --skip-duplicate` re-uses the already-published package
 #  instead of re-uploading it (C--FrameworkExtensions relies on this heavily).
 #  Repos that centralise the version in a props/VERSION file inherit the
 #  declaring folder's coarser count — every commit below it bumps all heirs.
 #
+#  The REPO-level marker is NOT produced here: releases and nightlies are tagged
+#  vYYYYMMDD / nightly-YYYYMMDD by the workflows. This script only answers "what
+#  version does this package carry".
+#
 #  Version sources (kind -> file -> field):
-#    dotnet : *.csproj/*.fsproj/*.vbproj, Directory.Build.props/.targets   <Version>
-#    node   : package.json                                                  "version"
-#    php    : composer.json                                                 "version"
-#    perl   : *.pm that declares $VERSION                                    $VERSION
-#  Composition respects each grammar:  dotnet/perl -> X.Y.Z.BUILD ,
-#  semver node/php -> X.Y.Z+BUILD (a 4th numeric part is invalid there).
+#    dotnet : *.csproj/*.fsproj/*.vbproj, Directory.Build.props/.targets  <Version>
+#    node   : package.json                                                "version"
+#    php    : composer.json                                               "version"
+#    perl   : *.pm that declares $VERSION                                 $VERSION
+#    rust   : Cargo.toml                                        [package] version
+#    cpp    : CMakeLists.txt                                    project(.. VERSION ..)
+#    basic  : *.SUB/*.BAS/*.BI     %<PREFIX>_VERSION_MAJOR/_MINOR/_PATCH constants
+#    file   : repo-root VERSION                            the whole file (READ-ONLY)
+#
+#  Composition respects each grammar. SemVer ecosystems (node, php, rust) cannot
+#  take a 4th numeric part, so the build lands in build metadata: X.Y.Z+BUILD.
+#  Everything else composes X.Y.Z.BUILD.
+#
+#  The root VERSION file is READ but never rewritten — it is the human-authored
+#  declaration, and no build step consumes a stamped copy of it (those repos ask
+#  for the composed string with a bare `version.pl` instead).
+#
+#  `--stamp` is a ONE-SHOT operation on a fresh CI checkout, which is how every
+#  workflow uses it. dotnet/cpp/basic re-read cleanly and are idempotent; a perl
+#  $VERSION whose base has fewer than three components (e.g. '1.00') gains one on
+#  each stamp, so do not stamp a working tree twice and commit the result.
 #
 #  Two integration styles, both supported:
 #    * STAMP (files drive): `--stamp` rewrites the version in every source file;
 #      the build then packs straight from those files.
 #    * COMPUTE-AND-PASS (one coordinated version): a repo that centralises its
-#      version in Directory.Build.props runs bare `version.pl` to get a single
-#      string and passes it via `-p:Version=...` to every pack/publish.
+#      version in Directory.Build.props/VERSION runs bare `version.pl` to get a
+#      single string and passes it via `-p:Version=...` to every pack/publish.
 #
 #  Usage:
 #    perl version.pl            # print the repo's single version  (X.Y.Z.BUILD)
@@ -45,8 +65,8 @@
 #                               # inherited ones annotated with their declaring file
 #
 #  The single-version modes use the PRIMARY source: a root VERSION file, else the
-#  shallowest Directory.Build.props with a <Version>, else the shallowest csproj
-#  with one. Their build number is that primary source's parent-folder count.
+#  shallowest Directory.Build.props with a <Version>, else the shallowest manifest
+#  of any kind. Their build number is that primary source's parent-folder count.
 #
 #  Exit: 0 success, 2 bad usage.
 # -----------------------------------------------------------------------------
@@ -64,14 +84,15 @@ my $root = _RepoRoot("$FindBin::Bin");
 
 # ---- single-version modes (compute-and-pass repos) -------------------------
 if ($mode eq '' || $mode eq '--base' || $mode eq '--build') {
-    my ($base, $dir) = _PrimarySource($root);
+    my ($base, $dir, $kind) = _PrimarySource($root);
     if ($mode eq '--build') {
         print _BuildNumber($root, $dir), "\n";   # $dir undef -> repo-wide
         exit 0;
     }
-    die "version.pl: no version source (VERSION / Directory.Build.props / csproj <Version>)\n"
+    die "version.pl: no version source (VERSION / Directory.Build.props / project manifest)\n"
         unless defined $base;
-    print(($mode eq '--base') ? $base : _Compose('dotnet', $base, _BuildNumber($root, $dir)), "\n");
+    print(($mode eq '--base') ? $base
+                              : _Compose($kind, $base, _BuildNumber($root, $dir)), "\n");
     exit 0;
 }
 
@@ -112,13 +133,24 @@ exit 0;
 
 # --------------------------------------------------------------------------- #
 
+# SemVer ecosystems reject a 4th numeric component, so the build number goes
+# into build metadata (X.Y.Z+BUILD) instead of a 4th field (X.Y.Z.BUILD).
+# Deliberately a sub, not a file-scope `my` hash: the single-version modes exit
+# before a file-scope initialiser further down would ever run, which would leave
+# the table empty and silently compose SemVer versions the wrong way.
+sub _IsSemVer {
+    my ($k) = @_;
+    return 0 unless defined $k;
+    return ($k eq 'node' || $k eq 'php' || $k eq 'rust') ? 1 : 0;
+}
+
 sub _Compose {
     my ($kind, $base, $build) = @_;
     return undef unless defined $base;
     my @p = split /\./, $base;
     @p = @p[0 .. 2] if @p > 3;
     my $core = join('.', @p);
-    return ($kind eq 'node' || $kind eq 'php') ? "$core+$build" : "$core.$build";
+    return _IsSemVer($kind) ? "$core+$build" : "$core.$build";
 }
 
 sub _Kind {
@@ -127,7 +159,11 @@ sub _Kind {
     return 'dotnet' if $f =~ m{(?:^|[/\\])Directory\.Build\.(?:props|targets)$}i;
     return 'node'   if $f =~ m{(?:^|[/\\])package\.json$}i;
     return 'php'    if $f =~ m{(?:^|[/\\])composer\.json$}i;
+    return 'rust'   if $f =~ m{(?:^|[/\\])Cargo\.toml$}i;
+    return 'cpp'    if $f =~ m{(?:^|[/\\])CMakeLists\.txt$}i;
     return 'perl'   if $f =~ /\.pm$/i;
+    return 'basic'  if $f =~ /\.(?:sub|bas|bi)$/i;
+    return 'file'   if $f =~ m{(?:^|[/\\])VERSION$};
     return undef;
 }
 
@@ -136,7 +172,7 @@ sub _Manifests {
     my @out;
     my %skip = map { $_ => 1 } qw(
         bin obj packages node_modules .git .vs .idea TestResults
-        artifacts publish dist stage coverage vendor .svn
+        artifacts publish dist stage coverage vendor .svn target build cmake-build-debug
     );
     File::Find::find(
         {
@@ -179,30 +215,33 @@ sub _InheritedBase {
 }
 
 # Primary source for the single repo version: VERSION, else the shallowest
-# Directory.Build.props with a <Version>, else the shallowest csproj with one.
-# Returns ($base, $parentDirRelativeToRoot) or (undef, undef).
+# Directory.Build.props with a <Version>, else the shallowest manifest of any
+# kind that declares one. Returns ($base, $parentDirRelativeToRoot, $kind).
 sub _PrimarySource {
     my ($r) = @_;
     my $vf = "$r/VERSION";
     if (-r $vf) {
         my $b = _VersionFile($r);
-        return ($b, '') if defined $b;
+        return ($b, '', 'file') if defined $b;
     }
-    my (@props, @projs);
+    my (@props, @rest);
     for my $m (_Manifests($r)) {
         my ($file, $kind) = @$m;
-        next unless $kind eq 'dotnet';
-        next unless defined _ReadDotnet($file);
-        if ($file =~ m{Directory\.Build\.(?:props|targets)$}i) { push @props, $file }
-        else { push @projs, $file }
+        next if $kind eq 'file';                       # handled above
+        next unless defined _ReadBase($kind, $file);
+        if ($kind eq 'dotnet' && $file =~ m{Directory\.Build\.(?:props|targets)$}i) {
+            push @props, [$file, $kind];
+        } else {
+            push @rest, [$file, $kind];
+        }
     }
     my $depth = sub { my $d = _ParentDir($r, $_[0]); ($d eq '') ? 0 : ($d =~ tr{/\\}{}) + 1 };
-    for my $list (\@props, \@projs) {
+    for my $list (\@props, \@rest) {
         next unless @$list;
-        my ($best) = sort { $depth->($a) <=> $depth->($b) || $a cmp $b } @$list;
-        return (_ReadDotnet($best), _ParentDir($r, $best));
+        my ($best) = sort { $depth->($a->[0]) <=> $depth->($b->[0]) || $a->[0] cmp $b->[0] } @$list;
+        return (_ReadBase($best->[1], $best->[0]), _ParentDir($r, $best->[0]), $best->[1]);
     }
-    return (undef, undef);
+    return (undef, undef, undef);
 }
 
 # ---- per-kind readers ------------------------------------------------------
@@ -212,6 +251,10 @@ sub _ReadBase {
     return _ReadDotnet($f) if $kind eq 'dotnet';
     return _ReadJson($f)   if $kind eq 'node' || $kind eq 'php';
     return _ReadPerl($f)   if $kind eq 'perl';
+    return _ReadRust($f)   if $kind eq 'rust';
+    return _ReadCpp($f)    if $kind eq 'cpp';
+    return _ReadBasic($f)  if $kind eq 'basic';
+    return _ReadFile($f)   if $kind eq 'file';
     return undef;
 }
 
@@ -224,10 +267,14 @@ sub _Slurp {
     return $c;
 }
 
+# Accepts an ALREADY-STAMPED four-component value too: _Compose keeps only the
+# first three, so re-reading a stamped file yields the same base and stamping is
+# idempotent. Capping at three here instead would make a stamped project
+# unreadable, and `--list` after `--stamp` would silently omit it.
 sub _ReadDotnet {
     my ($f) = @_;
     my $c = _Slurp($f) // return undef;
-    return $c =~ m{<Version>\s*(\d+(?:\.\d+){0,2})\s*</Version>}i ? $1 : undef;
+    return $c =~ m{<Version>\s*(\d+(?:\.\d+){0,3})\s*</Version>}i ? $1 : undef;
 }
 
 sub _ReadJson {
@@ -240,6 +287,44 @@ sub _ReadPerl {
     my ($f) = @_;
     my $c = _Slurp($f) // return undef;
     return $c =~ m{\$VERSION\s*=\s*['"]v?(\d+(?:\.\d+){0,3})}i ? $1 : undef;
+}
+
+# Only the [package] table declares THIS crate's version — every [dependencies]
+# entry carries its own `version` key, and a naive match would grab whichever
+# came first in the file.
+sub _ReadRust {
+    my ($f) = @_;
+    my $c = _Slurp($f) // return undef;
+    return undef unless $c =~ m{^[ \t]*\[package\][ \t]*\r?$(.*?)(?=^[ \t]*\[|\z)}ms;
+    my $pkg = $1;
+    return $pkg =~ m{^[ \t]*version[ \t]*=[ \t]*"v?(\d+(?:\.\d+){0,2})}m ? $1 : undef;
+}
+
+# project(Name VERSION 1.2.3 LANGUAGES CXX) — CMake allows up to four numeric
+# components, so a stamped X.Y.Z.BUILD stays valid input for the next read.
+sub _ReadCpp {
+    my ($f) = @_;
+    my $c = _Slurp($f) // return undef;
+    return $c =~ m{\bproject\s*\([^)]*?\bVERSION\s+(\d+(?:\.\d+){0,3})}is ? $1 : undef;
+}
+
+# QuickBASIC/PowerBASIC constants: %SVGA_VERSION_MAJOR = 1 (etc). MAJOR is
+# required; MINOR/PATCH default to 0 so a partial declaration still versions.
+sub _ReadBasic {
+    my ($f) = @_;
+    my $c = _Slurp($f) // return undef;
+    return undef unless $c =~ m{%\w*VERSION_MAJOR\s*=\s*(\d+)}i;
+    my $ma = $1;
+    my $mi = ($c =~ m{%\w*VERSION_MINOR\s*=\s*(\d+)}i) ? $1 : 0;
+    my $pa = ($c =~ m{%\w*VERSION_PATCH\s*=\s*(\d+)}i) ? $1 : 0;
+    return "$ma.$mi.$pa";
+}
+
+sub _ReadFile {
+    my ($f) = @_;
+    my $c = _Slurp($f) // return undef;
+    $c =~ s/^\s+|\s+$//g;
+    return $c =~ m{^v?(\d+(?:\.\d+){0,3})} ? $1 : undef;
 }
 
 # ---- per-kind rewriters (return 1 if the file changed) ---------------------
@@ -255,7 +340,23 @@ sub _Rewrite {
         $c =~ s{("version"\s*:\s*")[^"]*(")}{$1$full$2}i;   # first occurrence only
     } elsif ($kind eq 'perl') {
         $c =~ s{(\$VERSION\s*=\s*['"])[^'"]*(['"])}{$1$full$2};
+    } elsif ($kind eq 'rust') {
+        # Confine the rewrite to the [package] table (see _ReadRust).
+        $c =~ s{(^[ \t]*\[package\][ \t]*\r?$)(.*?)(?=^[ \t]*\[|\z)}{
+            my ($hdr, $body) = ($1, $2);
+            $body =~ s{(^[ \t]*version[ \t]*=[ \t]*")[^"]*(")}{$1$full$2}m;
+            $hdr . $body;
+        }mse;
+    } elsif ($kind eq 'cpp') {
+        $c =~ s{(\bproject\s*\([^)]*?\bVERSION\s+)\d+(?:\.\d+){0,3}}{$1$full}is;
+    } elsif ($kind eq 'basic') {
+        # MAJOR/MINOR/PATCH are the human-authored base; only a dedicated BUILD
+        # constant is machine-owned. Repos without one simply are not stamped.
+        my ($build) = $full =~ m{(\d+)$};
+        return 0 unless defined $build;
+        $c =~ s{(%\w*VERSION_BUILD\s*=\s*)\d+}{$1$build}i;
     } else {
+        # 'file' (root VERSION) is the human-authored declaration — never rewritten.
         return 0;
     }
     return 0 if $c eq $orig;
@@ -269,8 +370,17 @@ sub _Rewrite {
 
 # ---- git / path helpers ----------------------------------------------------
 
+# The repo being versioned is the one in the WORKING DIRECTORY, not the one the
+# script happens to live in: when this runs from the shared composite action the
+# script sits in the action's own checkout, so walking up from $FindBin::Bin
+# would resolve the action repo instead of the caller's. Ask git about the cwd
+# first and only fall back to the script-relative walk (vendored copies, or a
+# working directory that is not a git repo at all).
 sub _RepoRoot {
     my ($d) = @_;
+    my $top = `git rev-parse --show-toplevel 2>/dev/null`;
+    chomp $top if defined $top;
+    return $top if defined $top && length $top && -d "$top/.git";
     for (1 .. 20) {
         return $d if -d "$d/.git";
         my $p = $d;
@@ -293,11 +403,7 @@ sub _VersionFile {
     my ($r) = @_;
     my $vf = "$r/VERSION";
     return undef unless -r $vf;
-    open my $fh, '<', $vf or return undef;
-    chomp(my $v = <$fh>);
-    close $fh;
-    $v =~ s/^\s+|\s+$//g if defined $v;
-    return (defined $v && length $v) ? $v : undef;
+    return _ReadFile($vf);
 }
 
 # Path of a source file's directory, relative to the repo root ('' = repo root).

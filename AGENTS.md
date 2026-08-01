@@ -44,8 +44,10 @@ asked.
 - Latest C# language version; `Nullable` and `ImplicitUsings` enabled (set in
   `Directory.Build.props`). Warnings-as-errors where the project enables it — do not suppress without
   justification.
-- Versions come from files, never git tags: `.github/workflows/scripts/version.pl` stamps each
-  csproj's `<Version>` with the commit count of its folder as the build field.
+- Versions come from files, never git tags. The shared `stamp-version` action stamps each manifest's
+  version with the commit count of ITS OWN folder as the build field, so sibling packages version
+  independently. The repo-level marker is the date: releases tag `vYYYYMMDD`, nightlies
+  `nightly-YYYYMMDD`. This repo carries no `scripts/` — they live in `Hawkynt/RepositoryTemplate`.
 
 ## README & repo conventions
 

@@ -1,0 +1,57 @@
+name: Stamp version
+description: >-
+  Stamp every version-bearing manifest with its own base version plus the commit count of its parent
+  folder (version.pl), and expose the repo's single version when it has one. Supports .NET, Node,
+  PHP, Perl, Rust, C++ (CMake), QuickBASIC and a root VERSION file.
+
+inputs:
+  mode:
+    description: >-
+      `stamp` rewrites every manifest in place (the default; what a build wants). `print` computes
+      only and leaves the tree untouched.
+    required: false
+    default: stamp
+
+outputs:
+  version:
+    description: >-
+      The repo's single composed version (X.Y.Z.BUILD), or empty for repos that version per package
+      and therefore have no single repo version.
+    value: ${{ steps.run.outputs.version }}
+
+runs:
+  using: composite
+  steps:
+    # version.pl derives build numbers from `git rev-list --count`, so a shallow checkout silently
+    # yields 1 for everything. Fail loudly instead of stamping every package with a wrong number.
+    - name: Verify full history
+      shell: bash
+      run: |
+        if [ "$(git rev-parse --is-shallow-repository 2>/dev/null)" = "true" ]; then
+          echo "::error::Shallow checkout — version.pl counts commits. Use actions/checkout with fetch-depth: 0."
+          exit 1
+        fi
+
+    - name: Stamp / compute versions
+      id: run
+      shell: bash
+      run: |
+        SCRIPT="${{ github.action_path }}/../scripts/version.pl"
+        case "${{ inputs.mode }}" in
+          stamp) perl "$SCRIPT" --stamp ;;
+          print) ;;
+          *) echo "::error::mode must be 'stamp' or 'print'"; exit 1 ;;
+        esac
+
+        echo "Per-package versions:"
+        perl "$SCRIPT" --list || true
+
+        # A repo that versions per package has no single primary source. That is a valid layout,
+        # not a failure, so the output is simply empty and the caller decides whether it needs one.
+        V="$(perl "$SCRIPT" 2>/dev/null || true)"
+        echo "version=$V" >> "$GITHUB_OUTPUT"
+        if [ -n "$V" ]; then
+          echo "Repo version: $V"
+        else
+          echo "No single repo version (per-package versioning)."
+        fi

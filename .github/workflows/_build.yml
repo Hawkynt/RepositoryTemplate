@@ -31,9 +31,10 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
+      # Versioning lives in the shared action, so this repo carries no scripts of its own.
+      # Handles .NET, Node, PHP, Perl, Rust, C++ (CMake), QuickBASIC and a root VERSION file.
       - name: Stamp per-package versions
-        shell: bash
-        run: perl .github/workflows/scripts/version.pl --stamp
+        uses: Hawkynt/RepositoryTemplate/stamp-version@v1
 
       # ----- APP BINARIES (delete if this repo ships only NuGet packages) --------------------------
       # One self-contained, trimmed, compressed single-file executable per app per RID.

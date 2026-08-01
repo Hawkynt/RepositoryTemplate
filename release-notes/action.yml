@@ -1,0 +1,51 @@
+name: Release notes
+description: >-
+  Generate release notes (and optionally update CHANGELOG.md) from commit subjects bucketed by the
+  house prefixes + - * # !, rather than GitHub's PR-based "What's Changed".
+
+inputs:
+  mode:
+    description: '`release` (updates CHANGELOG.md) or `nightly` (notes only).'
+    required: true
+  marker:
+    description: 'Release marker, e.g. v20260801. Required for mode=release.'
+    required: false
+    default: ""
+  notes:
+    description: Path the release-notes body is written to.
+    required: false
+    default: RELEASE_NOTES.md
+
+runs:
+  using: composite
+  steps:
+    # The generator walks git log back to the previous marker; a shallow checkout truncates the
+    # history and silently produces short or empty notes.
+    - name: Verify full history
+      shell: bash
+      run: |
+        if [ "$(git rev-parse --is-shallow-repository 2>/dev/null)" = "true" ]; then
+          echo "::error::Shallow checkout — the changelog reads git history. Use fetch-depth: 0."
+          exit 1
+        fi
+
+    - name: Generate notes
+      shell: bash
+      run: |
+        SCRIPT="${{ github.action_path }}/../scripts/update-changelog.mjs"
+        case "${{ inputs.mode }}" in
+          release)
+            if [ -z "${{ inputs.marker }}" ]; then
+              echo "::error::mode=release requires the 'marker' input (e.g. v20260801)."
+              exit 1
+            fi
+            node "$SCRIPT" --release "${{ inputs.marker }}" --notes "${{ inputs.notes }}"
+            ;;
+          nightly)
+            # --notes-only: CHANGELOG.md is committed by the release path exclusively, so writing it
+            # here would be discarded with the runner workspace anyway.
+            node "$SCRIPT" --nightly --notes-only --notes "${{ inputs.notes }}"
+            ;;
+          *)
+            echo "::error::mode must be 'release' or 'nightly'"; exit 1 ;;
+        esac

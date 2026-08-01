@@ -50,7 +50,10 @@ jobs:
           node-version: '22'
       # --notes-only: CHANGELOG.md is committed by release.yml exclusively.
       - name: Generate release notes (functional changes, bucketed by + - * # !)
-        run: node .github/workflows/scripts/update-changelog.mjs --nightly --notes-only --notes RELEASE_NOTES.md
+        uses: Hawkynt/RepositoryTemplate/release-notes@v1
+        with:
+          mode: nightly
+          notes: RELEASE_NOTES.md
 
       # Same-day re-run: drop the existing nightly release AND its tag first, so the tag always
       # points at the SHA that was actually built.
@@ -77,6 +80,4 @@ jobs:
         with:
           node-version: '22'
       - name: GFS prune of old nightlies (7 daily + 4 weekly + 3 monthly)
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: node .github/workflows/scripts/prune-nightlies.mjs
+        uses: Hawkynt/RepositoryTemplate/prune-nightlies@v1
