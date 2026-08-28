@@ -27,7 +27,9 @@ if [ ! -f "$FILE" ]; then
   exit 1
 fi
 
-if git diff --quiet -- "$FILE"; then
+# status, not diff: a file the repository does not track yet — the first screenshot, the first
+# generated table — is invisible to `git diff` and would be reported as unchanged forever.
+if [ -z "$(git status --porcelain -- "$FILE")" ]; then
   echo "::notice::$FILE is unchanged"
   exit 0
 fi
