@@ -221,6 +221,17 @@ static class Runner {
       return findings;
     }
 
+    // .NET Framework targets are refused rather than attempted. MetadataLoadContext cannot resolve
+    // mscorlib from the .NET shared frameworks and recurses until the stack overflows -- which is
+    // uncatchable, so the process simply dies. Detecting it first is the only available defense.
+    if (Regex.IsMatch(pkg.TargetFramework, @"^net\d+$")) {
+      findings.Add(Finding.Error(
+        $"{pkg.ProjectName}: cannot document the .NET Framework target '{pkg.TargetFramework}'. Its core " +
+        "library is not resolvable here. Pass --target-framework with a .NET or .NET Standard target " +
+        "(for example netstandard2.0) that the package also builds."));
+      return findings;
+    }
+
     if (pkg.MissingBundles.Count > 0)
       findings.Add(Finding.Error(
         $"{pkg.ProjectName}: {pkg.MissingBundles.Count} bundled assembly/assemblies were not found in the build output " +
@@ -233,6 +244,9 @@ static class Runner {
     ApiModel model;
     try {
       model = ApiExtractor.Extract(inputs);
+    } catch (ApiExtractionException e) {
+      findings.Add(Finding.Error($"{pkg.ProjectName}: {e.Message}"));
+      return findings;
     } catch (Exception e) {
       findings.Add(Finding.Error($"{pkg.ProjectName}: could not read assembly metadata — {e.Message}"));
       return findings;
@@ -245,7 +259,13 @@ static class Runner {
 
     findings.AddRange(model.Advisories.Select(Finding.Warning));
 
-    var generated = Renderer.Render(model);
+    string generated;
+    try {
+      generated = Renderer.Render(model);
+    } catch (ApiExtractionException e) {
+      findings.Add(Finding.Error($"{pkg.ProjectName}: {e.Message}"));
+      return findings;
+    }
 
     string updated;
     try {
@@ -307,7 +327,8 @@ record PackageProject(
   string? AssemblyPath,
   string? DocumentationPath,
   List<string> BundledAssemblies,
-  List<string> MissingBundles);
+  List<string> MissingBundles,
+  string TargetFramework);
 
 static class ProjectDiscovery {
   static readonly string[] SkipDirectories = [
@@ -459,7 +480,8 @@ static class ProjectDiscovery {
       string.IsNullOrEmpty(targetPath) ? null : targetPath,
       docPath,
       bundled,
-      missing);
+      missing,
+      props.GetValueOrDefault("TargetFramework", ""));
   }
 
   /// <summary>
@@ -687,6 +709,7 @@ static class ApiExtractor {
     var undocumented = 0;
     var exampleless = new List<string>();
     var unresolvable = new List<string>();
+    var attempted = 0;
     var seen = new HashSet<string>(StringComparer.Ordinal);
 
     foreach (var (assemblyPath, documentationPath) in inputs) {
@@ -704,13 +727,22 @@ static class ApiExtractor {
         // A type whose base or interface lives in an assembly outside the package and outside the
         // shared frameworks (a NuGet dependency, say) cannot be fully described. Skipping that one
         // type and saying so beats aborting the whole package.
+        // Any failure to describe one type is survivable; aborting the run over it is not. A .NET
+        // Framework target throws from deep inside signature decoding rather than as a tidy
+        // FileNotFoundException, so this deliberately catches broadly and counts what it lost.
         TypeDoc doc;
         try {
           doc = BuildType(type, docs, ref undocumented);
-        } catch (FileNotFoundException e) {
-          unresolvable.Add($"{type.FullName} ({e.Message.Split(',')[0].Replace("Could not find assembly '", "")})");
+        } catch (Exception e) {
+          var reason = e is FileNotFoundException
+            ? e.Message.Split(',')[0].Replace("Could not find assembly '", "").Trim('\'')
+            : e.GetType().Name;
+          unresolvable.Add($"{type.FullName} ({reason})");
+          ++attempted;
           continue;
         }
+
+        ++attempted;
 
         var ns = string.IsNullOrEmpty(type.Namespace) ? "(global namespace)" : type.Namespace;
         if (!groups.TryGetValue(ns, out var list))
@@ -724,6 +756,16 @@ static class ApiExtractor {
 
     foreach (var list in groups.Values)
       list.Sort((a, b) => string.CompareOrdinal(a.DisplayName, b.DisplayName));
+
+    // Losing a stray type is a warning; losing most or all of them means the assembly could not
+    // really be read, and emitting a confidently empty reference would be worse than failing. This
+    // is what a .NET Framework target does today: its core library is not among the resolvable
+    // shared frameworks, so nearly every signature fails to decode.
+    if (unresolvable.Count > 0 && attempted > 0 && unresolvable.Count * 2 >= attempted)
+      throw new ApiExtractionException(
+        $"{unresolvable.Count} of {attempted} types could not be read — the assembly's framework references " +
+        $"are not resolvable here (first: {unresolvable[0]}). A .NET Framework target needs its reference " +
+        "assemblies; document a .NET/.NET Standard target framework instead via --target-framework.");
 
     if (unresolvable.Count > 0)
       advisories.Add(
@@ -1371,10 +1413,10 @@ static class Renderer {
   public static string Render(ApiModel model) {
     var sb = new StringBuilder();
 
-    if (model.Namespaces.Count == 0) {
-      sb.AppendLine("_This package exposes no public types._");
-      return sb.ToString().TrimEnd();
-    }
+    if (model.Namespaces.Count == 0)
+      throw new ApiExtractionException(
+        "the assembly exposes no public or protected types. A shipping package with an empty public " +
+        "surface is almost always a build or target-framework problem, not a real result.");
 
     foreach (var ns in model.Namespaces) {
       sb.AppendLine($"### Namespace `{ns.Name}`");
@@ -1463,6 +1505,8 @@ static class Renderer {
 // =============================================================================
 
 sealed class SpliceException(string message) : Exception(message);
+
+sealed class ApiExtractionException(string message) : Exception(message);
 
 static class ReadmeSplicer {
   /// <summary>
@@ -1708,7 +1752,7 @@ static class SelfTest {
   }
 
   static void LinterTests() {
-    var pkg = new PackageProject("p.csproj", "p", "My.Pkg", "README.md", "README.md", true, null, null, [], []);
+    var pkg = new PackageProject("p.csproj", "p", "My.Pkg", "README.md", "README.md", true, null, null, [], [], "net10.0");
 
     var good = "# My.Pkg\n\n[![NuGet](https://img.shields.io/x)](https://nuget.org/packages/My.Pkg)\n\n> A thing.\n\n"
                + string.Join("\n\n", Linter.RequiredHeadings) + "\n";
