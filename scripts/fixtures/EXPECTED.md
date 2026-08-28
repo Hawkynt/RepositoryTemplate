@@ -1,20 +1,6 @@
 ### Namespace `Fixture.Package`
 
-| Type | Kind | Summary |
-| --- | --- | --- |
-| [`BitOrder`](#bitorder) | enum | A bit-order selector, to cover the enum rendering path. |
-| [`BitWriter`](#bitwriter) | sealed class | Writes individual bits to a buffer. |
-| [`Cache<TKey, TValue>`](#cachetkey-tvalue) | class | A generic cache, covering generic type parameters and nested types. |
-| [`Cache<TKey, TValue>.Entry`](#cachetkey-tvalueentry) | readonly struct | One cached entry. Covers the nested-public-type path. |
-| [`Empty`](#empty) | sealed class | Boundary case: a visible type with no public or protected members at all. |
-| [`Fraction`](#fraction) | readonly struct | Covers operator overloads and conversions. |
-| [`Helpers`](#helpers) | static class | Covers the static-class path. |
-| [`INamed`](#inamed) | interface | Covers the interface rendering path. |
-| [`Location`](#location) | sealed record | Covers the record path. |
-| [`MostlyHidden`](#mostlyhidden) | sealed class | Covers a type whose members should be excluded entirely. |
-| [`NamedThing`](#namedthing) | sealed class | Covers explicit interface implementation and base-type reporting. |
-| [`Predicate<T>`](#predicatet) | delegate | Covers the delegate path. |
-| [`Undocumented`](#undocumented) | sealed class |  |
+[`BitOrder`](#bitorder) · [`BitWriter`](#bitwriter) · [`Cache<TKey, TValue>`](#cachetkey-tvalue) · [`Cache<TKey, TValue>.Entry`](#cachetkey-tvalueentry) · [`Empty`](#empty) · [`Fraction`](#fraction) · [`Helpers`](#helpers) · [`INamed`](#inamed) · [`Location`](#location) · [`MostlyHidden`](#mostlyhidden) · [`NamedThing`](#namedthing) · [`Predicate<T>`](#predicatet) · [`Undocumented`](#undocumented)
 
 #### `BitOrder`
 

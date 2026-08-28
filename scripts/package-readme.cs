@@ -1281,11 +1281,12 @@ static class Renderer {
     foreach (var ns in model.Namespaces) {
       sb.AppendLine($"### Namespace `{ns.Name}`");
       sb.AppendLine();
-      sb.AppendLine("| Type | Kind | Summary |");
-      sb.AppendLine("| --- | --- | --- |");
-      foreach (var t in ns.Types)
-        sb.AppendLine($"| [`{t.DisplayName}`](#{Anchor(t.DisplayName)}) | {t.Kind} | {Cell(t.Summary)} |");
 
+      // A compact linked index rather than a Type/Kind/Summary table: every one of those columns is
+      // repeated verbatim in the per-type section immediately below, and on a package the size of
+      // Hawkynt.FileFormats.Archives (781 types) that duplication is most of the file. This keeps
+      // the navigation and drops the copy.
+      sb.AppendLine(string.Join(" · ", ns.Types.Select(t => $"[`{t.DisplayName}`](#{Anchor(t.DisplayName)})")));
       sb.AppendLine();
 
       foreach (var t in ns.Types)
