@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Test fixture for scripts/package-readme.cs. Deliberately exercises the awkward corners of
+       assembly metadata: generics, nested and protected members, operators, explicit interface
+       implementations, ref/out/in/params, default values, records, enums, and a type carrying no
+       XML documentation at all. The golden output lives in ../EXPECTED.md. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>true</IsPackable>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <!-- Undocumented members are the point of one of the cases below, so CS1591 stays quiet. -->
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <!-- The generator reads the XML docs next to the assembly; keep symbols out of the way. -->
+    <DebugType>none</DebugType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+</Project>
