@@ -360,6 +360,16 @@ static class ProjectDiscovery {
       if (SkipDirectories.Contains(name, StringComparer.OrdinalIgnoreCase))
         continue;
 
+      // Never follow a symlink or junction. It usually points outside the repository -- a worktree
+      // link to a sibling checkout would otherwise pull that repo's packages into this one's
+      // results -- and it is also the only way this walk could cycle forever.
+      try {
+        if ((File.GetAttributes(sub) & FileAttributes.ReparsePoint) != 0)
+          continue;
+      } catch (Exception e) when (e is IOException or UnauthorizedAccessException) {
+        continue;
+      }
+
       Walk(sub, into);
     }
   }
