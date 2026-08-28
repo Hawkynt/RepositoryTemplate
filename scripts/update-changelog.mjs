@@ -19,12 +19,22 @@
 
 import fs   from 'node:fs';
 import path from 'node:path';
-import url  from 'node:url';
 import { spawnSync } from 'node:child_process';
 
-const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
-// Script lives at <repo>/.github/workflows/scripts/ -- repo root is three up.
-const REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
+// The repo root is derived from the WORKING DIRECTORY, never from this file's location. When the
+// shared actions run, the script is checked out under the runner's _actions directory, nowhere near
+// the repository being released -- a path-relative guess writes CHANGELOG.md outside the workspace,
+// where release.yml's `git diff --quiet -- CHANGELOG.md` then sees nothing to commit and the release
+// goes green having silently skipped the changelog. version.pl solves this the same way.
+function repoRoot() {
+  const r = spawnSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' });
+  if (r.status === 0 && r.stdout.trim())
+    return r.stdout.trim();
+
+  return process.cwd();
+}
+
+const REPO_ROOT = repoRoot();
 const CHANGELOG = path.join(REPO_ROOT, 'CHANGELOG.md');
 
 // ---------------------------------------------------------------------------
