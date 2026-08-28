@@ -41,7 +41,10 @@ jobs:
           fetch-depth: 0                         # update-changelog.mjs reads git log
       - name: Compute nightly tag
         run: echo "TAG=nightly-$(date -u +%Y%m%d)" >> "$GITHUB_ENV"
+      # _build.yml uploads app-artifacts with `if-no-files-found: ignore`, so a NuGet-only repo
+      # produces no such artifact at all and download-artifact@v4 errors on the missing name.
       - uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
           name: app-artifacts
           path: dist

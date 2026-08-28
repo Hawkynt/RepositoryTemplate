@@ -58,8 +58,11 @@ jobs:
       - name: Compute release marker
         run: echo "REL=v$(date -u +%Y%m%d)" >> "$GITHUB_ENV"
 
-      # Pull whichever artifacts _build produced (binaries, packages, or both).
+      # Pull whichever artifacts _build produced (binaries, packages, or both). _build.yml uploads
+      # app-artifacts with `if-no-files-found: ignore`, so a NuGet-only repo produces no such
+      # artifact at all and download-artifact@v4 errors on the missing name.
       - uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
           name: app-artifacts
           path: dist
