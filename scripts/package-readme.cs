@@ -340,10 +340,22 @@ static class ProjectDiscovery {
   }
 
   static void Walk(string dir, List<string> into) {
-    foreach (var f in Directory.EnumerateFiles(dir, "*.csproj"))
+    // A repository can contain a dangling symlink or a directory the runner cannot read -- neither
+    // is a reason to abandon the scan. CompressionWorkbench, for instance, carries a broken
+    // .claude/worktrees link to a sibling checkout that may not exist.
+    string[] files;
+    string[] subdirectories;
+    try {
+      files = Directory.GetFiles(dir, "*.csproj");
+      subdirectories = Directory.GetDirectories(dir);
+    } catch (Exception e) when (e is IOException or UnauthorizedAccessException) {
+      return;
+    }
+
+    foreach (var f in files)
       into.Add(Path.GetFullPath(f));
 
-    foreach (var sub in Directory.EnumerateDirectories(dir)) {
+    foreach (var sub in subdirectories) {
       var name = Path.GetFileName(sub);
       if (SkipDirectories.Contains(name, StringComparer.OrdinalIgnoreCase))
         continue;
