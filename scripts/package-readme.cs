@@ -454,7 +454,7 @@ static class ProjectDiscovery {
         && !string.Equals(isPackable, "true", StringComparison.OrdinalIgnoreCase))
       return null;
 
-    var readmeRelative = props.GetValueOrDefault("PackageReadmeFile", "");
+    var readmeRelative = NormalizeSeparators(props.GetValueOrDefault("PackageReadmeFile", ""));
     var projectDir = Path.GetDirectoryName(Path.GetFullPath(projectPath))!;
     var packageId = props.GetValueOrDefault("PackageId", "");
     if (string.IsNullOrEmpty(packageId))
@@ -465,7 +465,7 @@ static class ProjectDiscovery {
       : Path.GetFullPath(Path.Combine(projectDir, readmeRelative));
 
     var targetPath = props.GetValueOrDefault("TargetPath", "");
-    var docFile = props.GetValueOrDefault("DocumentationFile", "");
+    var docFile = NormalizeSeparators(props.GetValueOrDefault("DocumentationFile", ""));
     var docPath = string.IsNullOrEmpty(docFile) ? null : Path.GetFullPath(Path.Combine(projectDir, docFile));
 
     var (bundled, missing) = ResolveBundledAssemblies(evaluated.ProjectReferences, projectDir, targetPath);
@@ -523,7 +523,7 @@ static class ProjectDiscovery {
       if (!privateAssets.Split(';').Any(p => p.Trim().Equals("all", StringComparison.OrdinalIgnoreCase)))
         continue;
 
-      var identity = reference.GetValueOrDefault("Identity", "");
+      var identity = NormalizeSeparators(reference.GetValueOrDefault("Identity", ""));
       if (string.IsNullOrEmpty(identity))
         continue;
 
@@ -571,13 +571,23 @@ static class ProjectDiscovery {
   }
 
   /// <summary>
+  ///   MSBuild reports paths with Windows separators whatever the host OS: on Linux
+  ///   <c>DocumentationFile</c> comes back as <c>obj\Release/net10.0/Thing.xml</c>. A backslash is an
+  ///   ordinary filename character there, so <c>Path.Combine</c> builds a path that cannot exist, the
+  ///   XML docs are silently not found, and every summary disappears from the generated reference —
+  ///   which then reads as drift against a README generated on Windows. Normalizing every
+  ///   MSBuild-supplied path on the way in is the only place this has to be remembered.
+  /// </summary>
+  public static string NormalizeSeparators(string path) => path.Replace('\\', Path.DirectorySeparatorChar);
+
+  /// <summary>
   ///   PackageReadmeFile names the file inside the package; it does not put it there. Without a
   ///   Pack'd None item `dotnet pack` fails NU5039, so the item is part of the contract.
   /// </summary>
   static bool IsReadmePacked(List<Dictionary<string, string>> noneItems, string readmeRelative) {
     var wanted = Path.GetFileName(readmeRelative);
     foreach (var item in noneItems) {
-      var identity = item.GetValueOrDefault("Identity", "");
+      var identity = NormalizeSeparators(item.GetValueOrDefault("Identity", ""));
       if (!string.Equals(Path.GetFileName(identity), wanted, StringComparison.OrdinalIgnoreCase))
         continue;
 
@@ -1822,6 +1832,16 @@ static class SelfTest {
     Check("literal/null", "null", Signatures.LiteralForTest(null));
     Check("identifier/keyword-escaped", "@this", Naming.Identifier("this"));
     Check("identifier/ordinary-untouched", "value2", Naming.Identifier("value2"));
+
+    // MSBuild hands back obj\Release/net10.0/X.xml on Linux too. Left alone, the backslash is part
+    // of the filename there, the XML docs are never found, and the reference loses every summary.
+    var sep = Path.DirectorySeparatorChar;
+    Check("msbuild-path/backslashes-normalized",
+      $"obj{sep}Release{sep}net10.0{sep}Thing.xml",
+      ProjectDiscovery.NormalizeSeparators(@"obj\Release/net10.0/Thing.xml"));
+    Check("msbuild-path/forward-slashes-untouched",
+      $"obj{sep}Release{sep}Thing.xml",
+      ProjectDiscovery.NormalizeSeparators($"obj{sep}Release{sep}Thing.xml"));
   }
 
   static void LinterTests() {
