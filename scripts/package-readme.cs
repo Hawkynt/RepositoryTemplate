@@ -1577,6 +1577,17 @@ static class Linter {
     "## 📜 License"
   ];
 
+  /// <summary>
+  ///   Blanks fenced blocks and inline code spans so the link check does not read code as markdown.
+  ///   An array-typed conversion operator renders as
+  ///   <c>static explicit operator TItem[](ReadOnlyArraySlice&lt;TItem&gt; this)</c>, whose
+  ///   <c>[](</c> is indistinguishable from a link to a regular expression.
+  /// </summary>
+  static string StripCode(string markdown) {
+    var withoutFences = Regex.Replace(markdown, "^```.*?^```", "", RegexOptions.Singleline | RegexOptions.Multiline);
+    return Regex.Replace(withoutFences, "`[^`\n]*`", "");
+  }
+
   public static List<Finding> Check(string readme, PackageProject pkg) {
     var findings = new List<Finding>();
     var lines = readme.Replace("\r\n", "\n").Split('\n');
@@ -1622,7 +1633,7 @@ static class Linter {
         $"{where}: required headings are out of order. Canonical order: {string.Join(" → ", RequiredHeadings)}."));
 
     // --- Relative links silently break once the README is rendered on nuget.org.
-    foreach (var m in Regex.Matches(readme, @"\[[^\]]*\]\(([^)]+)\)").Cast<Match>()) {
+    foreach (var m in Regex.Matches(StripCode(readme), @"\[[^\]]*\]\(([^)]+)\)").Cast<Match>()) {
       var target = m.Groups[1].Value.Trim();
       if (target.StartsWith('#') || target.StartsWith("http://") || target.StartsWith("https://")
           || target.StartsWith("mailto:"))
@@ -1768,6 +1779,16 @@ static class SelfTest {
       .Any(f => !f.Advisory && f.Message.Contains("relative link")));
 
     CheckTrue("lint/anchor-link-allowed", Linter.Check(good + "\n[top](#my-pkg)\n", pkg)
+      .All(f => f.Advisory || !f.Message.Contains("relative link")));
+
+    // A generated signature is not a link. An array-typed conversion operator renders as
+    // "operator TItem[](Slice<TItem> this)", whose "[](" reads exactly like one.
+    CheckTrue("lint/code-span-is-not-a-link", Linter.Check(
+        good + "\n| `op` | `static explicit operator TItem[](Slice<TItem> this)` | x |\n", pkg)
+      .All(f => f.Advisory || !f.Message.Contains("relative link")));
+
+    CheckTrue("lint/fenced-block-is-not-a-link", Linter.Check(
+        good + "\n```csharp\nvar x = arr[0](y);\n```\n", pkg)
       .All(f => f.Advisory || !f.Message.Contains("relative link")));
 
     CheckTrue("lint/placeholder", Linter.Check(good.Replace("A thing.", "{{DESCRIPTION}}"), pkg)
