@@ -1285,8 +1285,9 @@ sealed class XmlDocs {
 
     var sb = new StringBuilder();
     Walk(element, sb);
-    var text = Regex.Replace(sb.ToString(), @"\s+", " ").Trim();
-    return text.Replace("|", "\\|");
+    // Pipes are left alone here. Escaping for the markdown table happens once, in the cell
+    // renderer; doing it in both places put a literal backslash in every summary containing one.
+    return Regex.Replace(sb.ToString(), @"\s+", " ").Trim();
   }
 
   static void Walk(XNode node, StringBuilder sb) {
@@ -1754,7 +1755,9 @@ static class SelfTest {
     Check("flatten/paramref", "The `count` bits.", XmlDocs.Flatten(XElement.Parse("<summary>The <paramref name=\"count\"/> bits.</summary>")));
     Check("flatten/c", "Pass `null`.", XmlDocs.Flatten(XElement.Parse("<summary>Pass <c>null</c>.</summary>")));
     // A pipe would otherwise split the markdown table cell it lands in.
-    Check("flatten/pipe-escaped", "a \\| b", XmlDocs.Flatten(XElement.Parse("<summary>a | b</summary>")));
+    // Flatten leaves pipes alone; Cell escapes them exactly once.
+    Check("flatten/pipe-untouched", "a | b", XmlDocs.Flatten(XElement.Parse("<summary>a | b</summary>")));
+    Check("cell/pipe-escaped-once", "a \\| b", Renderer.CellForTest("a | b"));
     Check("flatten/empty", "", XmlDocs.Flatten(null));
   }
 
