@@ -1,0 +1,82 @@
+name: 'Package README'
+description: 'Generate the complete public/protected API reference into package READMEs and check them against the house template.'
+
+inputs:
+  mode:
+    description: 'check (fail on drift or lint violation) or write (rewrite the READMEs in place)'
+    required: false
+    default: 'check'
+  root:
+    description: 'Repository root to scan'
+    required: false
+    default: '.'
+  configuration:
+    description: 'Build configuration whose output to read'
+    required: false
+    default: 'Release'
+  project:
+    description: 'Newline-separated .csproj paths. Empty discovers every packable project.'
+    required: false
+    default: ''
+  dotnet-version:
+    description: 'SDK channel to install when the workflow has not already set one up'
+    required: false
+    default: '10.0.x'
+  upload-artifact:
+    description: 'On failure, upload the regenerated READMEs so the fix is one download away'
+    required: false
+    default: 'true'
+
+runs:
+  using: composite
+  steps:
+    # The tool is a .NET 10 file-based app. If the calling workflow already ran setup-dotnet this is
+    # a no-op; installing twice is cheaper than failing on a repo that has not.
+    - name: Ensure a .NET SDK is present
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ inputs.dotnet-version }}
+
+    - name: Check package READMEs
+      id: check
+      shell: bash
+      env:
+        MODE: ${{ inputs.mode }}
+        ROOT: ${{ inputs.root }}
+        CONFIGURATION: ${{ inputs.configuration }}
+        PROJECTS: ${{ inputs.project }}
+      run: |
+        set -euo pipefail
+
+        if [ "$MODE" != "check" ] && [ "$MODE" != "write" ]; then
+          echo "::error::mode must be 'check' or 'write', got '$MODE'."
+          exit 2
+        fi
+
+        args=(--"$MODE" "$ROOT" --configuration "$CONFIGURATION")
+        while IFS= read -r line; do
+          [ -n "$line" ] && args+=(--project "$line")
+        done <<< "$PROJECTS"
+
+        # `dotnet run <file>.cs` restores the tool's own NuGet reference on first use.
+        dotnet run "${{ github.action_path }}/../scripts/package-readme.cs" -- "${args[@]}"
+
+    # Runs even on failure: the regenerated files are the fix, so handing them over turns a red
+    # build into a download rather than a debugging session.
+    - name: Upload regenerated READMEs
+      if: ${{ failure() && inputs.upload-artifact == 'true' && inputs.mode == 'check' }}
+      shell: bash
+      env:
+        ROOT: ${{ inputs.root }}
+        CONFIGURATION: ${{ inputs.configuration }}
+      run: |
+        set -uo pipefail
+        echo "Regenerating so the corrected READMEs can be uploaded..."
+        dotnet run "${{ github.action_path }}/../scripts/package-readme.cs" -- --write "$ROOT" --configuration "$CONFIGURATION" || true
+
+    - uses: actions/upload-artifact@v4
+      if: ${{ failure() && inputs.upload-artifact == 'true' && inputs.mode == 'check' }}
+      with:
+        name: package-readmes
+        path: '**/README.md'
+        if-no-files-found: ignore
