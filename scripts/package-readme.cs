@@ -652,19 +652,19 @@ static class ApiExtractor {
     var advisories = new List<string>();
 
     var byName = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-    foreach (var dir in inputs
-               .Select(i => Path.GetDirectoryName(Path.GetFullPath(i.Assembly))!)
-               .Prepend(RuntimeEnvironment.GetRuntimeDirectory())
+    foreach (var dir in SharedFrameworkDirectories()
+               .Concat(inputs.Select(i => Path.GetDirectoryName(Path.GetFullPath(i.Assembly))!))
                .Distinct(StringComparer.OrdinalIgnoreCase))
       if (Directory.Exists(dir))
         foreach (var f in Directory.GetFiles(dir, "*.dll"))
-          byName[Path.GetFileNameWithoutExtension(f)] = f;
+          byName[Path.GetFileNameWithoutExtension(f)] = f; // package output wins over the framework
 
     using var mlc = new MetadataLoadContext(new PathAssemblyResolver(byName.Values));
 
     var groups = new SortedDictionary<string, List<TypeDoc>>(StringComparer.Ordinal);
     var undocumented = 0;
     var exampleless = new List<string>();
+    var unresolvable = new List<string>();
     var seen = new HashSet<string>(StringComparer.Ordinal);
 
     foreach (var (assemblyPath, documentationPath) in inputs) {
@@ -679,7 +679,17 @@ static class ApiExtractor {
         if (!seen.Add(type.FullName ?? type.Name))
           continue;
 
-        var doc = BuildType(type, docs, ref undocumented);
+        // A type whose base or interface lives in an assembly outside the package and outside the
+        // shared frameworks (a NuGet dependency, say) cannot be fully described. Skipping that one
+        // type and saying so beats aborting the whole package.
+        TypeDoc doc;
+        try {
+          doc = BuildType(type, docs, ref undocumented);
+        } catch (FileNotFoundException e) {
+          unresolvable.Add($"{type.FullName} ({e.Message.Split(',')[0].Replace("Could not find assembly '", "")})");
+          continue;
+        }
+
         var ns = string.IsNullOrEmpty(type.Namespace) ? "(global namespace)" : type.Namespace;
         if (!groups.TryGetValue(ns, out var list))
           groups[ns] = list = [];
@@ -693,6 +703,11 @@ static class ApiExtractor {
     foreach (var list in groups.Values)
       list.Sort((a, b) => string.CompareOrdinal(a.DisplayName, b.DisplayName));
 
+    if (unresolvable.Count > 0)
+      advisories.Add(
+        $"{unresolvable.Count} type(s) omitted — a referenced assembly could not be resolved: " +
+        string.Join(", ", unresolvable.Take(4)) + (unresolvable.Count > 4 ? ", ..." : "") + ".");
+
     if (undocumented > 0)
       advisories.Add($"{undocumented} public/protected member(s) have no <summary> — their API table cells are blank.");
 
@@ -705,6 +720,25 @@ static class ApiExtractor {
     return new ApiModel(
       groups.Select(kv => new NamespaceGroup(kv.Key, kv.Value)).ToList(),
       advisories);
+  }
+
+  /// <summary>
+  ///   Every installed shared framework, not just the one this tool runs on. A WinForms or WPF
+  ///   package references Microsoft.WindowsDesktop.App assemblies (System.Drawing.Common and
+  ///   friends), which do not live beside the .NETCore.App runtime.
+  /// </summary>
+  static IEnumerable<string> SharedFrameworkDirectories() {
+    var runtime = RuntimeEnvironment.GetRuntimeDirectory();
+    yield return runtime;
+
+    // <dotnet>/shared/Microsoft.NETCore.App/<version>/ -> <dotnet>/shared/
+    var shared = Path.GetDirectoryName(Path.GetDirectoryName(runtime.TrimEnd(Path.DirectorySeparatorChar)));
+    if (shared == null || !Directory.Exists(shared))
+      yield break;
+
+    foreach (var family in Directory.GetDirectories(shared))
+      foreach (var version in Directory.GetDirectories(family))
+        yield return version;
   }
 
   static TypeDoc BuildType(Type type, XmlDocs docs, ref int undocumented) {
