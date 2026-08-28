@@ -370,14 +370,32 @@ static class ProjectDiscovery {
   ///   only see the first kind.
   /// </summary>
   public static PackageProject? Describe(string projectPath, string configuration, bool verbose) {
-    var evaluated = MsBuild.Evaluate(projectPath, configuration,
-      "PackageId", "IsPackable", "OutputType", "PackageReadmeFile", "TargetPath", "DocumentationFile", "TargetFramework");
+    string[] wanted = [
+      "PackageId", "IsPackable", "OutputType", "PackageReadmeFile",
+      "TargetPath", "DocumentationFile", "TargetFramework", "TargetFrameworks"
+    ];
+
+    var evaluated = MsBuild.Evaluate(projectPath, configuration, null, wanted);
 
     if (evaluated == null) {
       if (verbose)
         Console.WriteLine($"  skipped (MSBuild evaluation failed): {projectPath}");
 
       return null;
+    }
+
+    // A multi-targeted project has no single TargetPath until a framework is chosen, so it comes
+    // back empty. Re-evaluate against one framework and document that -- the public surface is
+    // normally the same across them, and the chosen one is reported.
+    var frameworks = evaluated.Properties.GetValueOrDefault("TargetFrameworks", "");
+    if (string.IsNullOrEmpty(evaluated.Properties.GetValueOrDefault("TargetPath", "")) && !string.IsNullOrEmpty(frameworks)) {
+      var first = frameworks.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).LastOrDefault();
+      if (!string.IsNullOrEmpty(first)) {
+        if (verbose)
+          Console.WriteLine($"  {Path.GetFileName(projectPath)} multi-targets '{frameworks}'; documenting {first}");
+
+        evaluated = MsBuild.Evaluate(projectPath, configuration, first, wanted) ?? evaluated;
+      }
     }
 
     var props = evaluated.Properties;
@@ -449,6 +467,14 @@ static class ProjectDiscovery {
       return (bundled, missing);
 
     foreach (var reference in projectReferences) {
+      // A source generator is referenced as an Analyzer and contributes no assembly to lib/, so it
+      // is not part of the package's surface even though it is marked PrivateAssets="all".
+      if (string.Equals(reference.GetValueOrDefault("OutputItemType", ""), "Analyzer", StringComparison.OrdinalIgnoreCase))
+        continue;
+
+      if (string.Equals(reference.GetValueOrDefault("ReferenceOutputAssembly", ""), "false", StringComparison.OrdinalIgnoreCase))
+        continue;
+
       var privateAssets = reference.GetValueOrDefault("PrivateAssets", "");
       if (!privateAssets.Split(';').Any(p => p.Trim().Equals("all", StringComparison.OrdinalIgnoreCase)))
         continue;
@@ -531,14 +557,18 @@ static class MsBuild {
   ///   project filename), and the README's Pack item is often contributed by a Directory.Build.props
   ///   that a text scan of the .csproj would never see.
   /// </summary>
-  public static MsBuildResult? Evaluate(string projectPath, string configuration, params string[] names) {
+  public static MsBuildResult? Evaluate(string projectPath, string configuration, string? targetFramework, params string[] names) {
     var args = new StringBuilder();
     args.Append("msbuild \"").Append(projectPath).Append('"');
     foreach (var n in names)
       args.Append(" -getProperty:").Append(n);
 
     args.Append(" -getItem:None -getItem:ProjectReference");
-    args.Append(" -p:Configuration=").Append(configuration).Append(" -nologo");
+    args.Append(" -p:Configuration=").Append(configuration);
+    if (!string.IsNullOrEmpty(targetFramework))
+      args.Append(" -p:TargetFramework=").Append(targetFramework);
+
+    args.Append(" -nologo");
 
     var psi = new ProcessStartInfo("dotnet", args.ToString()) {
       RedirectStandardOutput = true,
