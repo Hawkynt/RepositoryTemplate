@@ -211,9 +211,18 @@ static class Runner {
       return findings;
     }
 
+    if (pkg.MissingBundles.Count > 0)
+      findings.Add(Finding.Error(
+        $"{pkg.ProjectName}: {pkg.MissingBundles.Count} bundled assembly/assemblies were not found in the build output " +
+        $"({string.Join(", ", pkg.MissingBundles.Take(5))}{(pkg.MissingBundles.Count > 5 ? ", ..." : "")}). " +
+        "Build the whole package before checking, or the reference would omit types the package ships."));
+
+    var inputs = new List<(string, string?)> { (pkg.AssemblyPath, pkg.DocumentationPath) };
+    inputs.AddRange(pkg.BundledAssemblies.Select(a => ((string)a, (string?)null)));
+
     ApiModel model;
     try {
-      model = ApiExtractor.Extract(pkg.AssemblyPath, pkg.DocumentationPath);
+      model = ApiExtractor.Extract(inputs);
     } catch (Exception e) {
       findings.Add(Finding.Error($"{pkg.ProjectName}: could not read assembly metadata — {e.Message}"));
       return findings;
@@ -286,7 +295,9 @@ record PackageProject(
   string? ReadmePath,
   bool ReadmeIsPacked,
   string? AssemblyPath,
-  string? DocumentationPath);
+  string? DocumentationPath,
+  List<string> BundledAssemblies,
+  List<string> MissingBundles);
 
 static class ProjectDiscovery {
   static readonly string[] SkipDirectories = [
@@ -384,6 +395,8 @@ static class ProjectDiscovery {
     var docFile = props.GetValueOrDefault("DocumentationFile", "");
     var docPath = string.IsNullOrEmpty(docFile) ? null : Path.GetFullPath(Path.Combine(projectDir, docFile));
 
+    var (bundled, missing) = ResolveBundledAssemblies(evaluated.ProjectReferences, projectDir, targetPath);
+
     return new PackageProject(
       Path.GetFullPath(projectPath),
       Path.GetFileNameWithoutExtension(projectPath),
@@ -392,7 +405,87 @@ static class ProjectDiscovery {
       readmePath,
       readmePath != null && IsReadmePacked(evaluated.NoneItems, readmeRelative),
       string.IsNullOrEmpty(targetPath) ? null : targetPath,
-      docPath);
+      docPath,
+      bundled,
+      missing);
+  }
+
+  /// <summary>
+  ///   Finds assemblies the package ships in <c>lib/</c> that are not its own output.
+  ///   <para>
+  ///     A meta-package bundles its ProjectReferences into the package instead of declaring them as
+  ///     transitive NuGet dependencies, and marks them <c>PrivateAssets="all"</c> to stop them being
+  ///     emitted as <c>&lt;dependency&gt;</c> entries. Those assemblies ARE the package's public
+  ///     surface: Hawkynt.FileFormats.Archives has no source file of its own and bundles 192 of
+  ///     them, so documenting only the facade would describe an empty package.
+  ///   </para>
+  ///   <para>
+  ///     They are located by name in the build output rather than by evaluating each referenced
+  ///     project, which would mean one MSBuild invocation per reference. Anything not found is
+  ///     reported rather than silently dropped, so a miss can never quietly shrink the reference.
+  ///   </para>
+  /// </summary>
+  static (List<string> Bundled, List<string> Missing) ResolveBundledAssemblies(
+    List<Dictionary<string, string>> projectReferences, string projectDir, string targetPath) {
+    var bundled = new List<string>();
+    var missing = new List<string>();
+    if (string.IsNullOrEmpty(targetPath))
+      return (bundled, missing);
+
+    var outputDir = Path.GetDirectoryName(targetPath);
+    if (outputDir == null || !Directory.Exists(outputDir))
+      return (bundled, missing);
+
+    foreach (var reference in projectReferences) {
+      var privateAssets = reference.GetValueOrDefault("PrivateAssets", "");
+      if (!privateAssets.Split(';').Any(p => p.Trim().Equals("all", StringComparison.OrdinalIgnoreCase)))
+        continue;
+
+      var identity = reference.GetValueOrDefault("Identity", "");
+      if (string.IsNullOrEmpty(identity))
+        continue;
+
+      var name = Path.GetFileNameWithoutExtension(identity);
+      var referencedProject = Path.GetFullPath(Path.Combine(projectDir, identity));
+      var resolved = ResolveAssemblyFile(outputDir, name, referencedProject);
+      if (resolved != null)
+        bundled.Add(resolved);
+      else
+        missing.Add(name);
+    }
+
+    bundled.Sort(StringComparer.Ordinal);
+    missing.Sort(StringComparer.Ordinal);
+    return (bundled, missing);
+  }
+
+  /// <summary>
+  ///   The output file is usually named after the project, but not always: a project may rename its
+  ///   output with AssemblyName (FileFormat.Ani.csproj produces CompressionWorkbench.FileFormat.Ani.dll
+  ///   in CompressionWorkbench). Falling back to the declared AssemblyName keeps those assemblies in
+  ///   the reference instead of dropping them.
+  /// </summary>
+  static string? ResolveAssemblyFile(string outputDir, string projectName, string referencedProject) {
+    var byProjectName = Path.Combine(outputDir, projectName + ".dll");
+    if (File.Exists(byProjectName))
+      return byProjectName;
+
+    if (!File.Exists(referencedProject))
+      return null;
+
+    string text;
+    try {
+      text = File.ReadAllText(referencedProject);
+    } catch (IOException) {
+      return null;
+    }
+
+    var declared = Regex.Match(text, @"<\s*AssemblyName\s*>\s*([^<]+?)\s*<", RegexOptions.IgnoreCase);
+    if (!declared.Success)
+      return null;
+
+    var byAssemblyName = Path.Combine(outputDir, declared.Groups[1].Value.Trim() + ".dll");
+    return File.Exists(byAssemblyName) ? byAssemblyName : null;
   }
 
   /// <summary>
@@ -414,7 +507,10 @@ static class ProjectDiscovery {
   }
 }
 
-record MsBuildResult(Dictionary<string, string> Properties, List<Dictionary<string, string>> NoneItems);
+record MsBuildResult(
+  Dictionary<string, string> Properties,
+  List<Dictionary<string, string>> NoneItems,
+  List<Dictionary<string, string>> ProjectReferences);
 
 static class MsBuild {
   /// <summary>
@@ -429,7 +525,7 @@ static class MsBuild {
     foreach (var n in names)
       args.Append(" -getProperty:").Append(n);
 
-    args.Append(" -getItem:None");
+    args.Append(" -getItem:None -getItem:ProjectReference");
     args.Append(" -p:Configuration=").Append(configuration).Append(" -nologo");
 
     var psi = new ProcessStartInfo("dotnet", args.ToString()) {
@@ -458,21 +554,28 @@ static class MsBuild {
         foreach (var prop in props.EnumerateObject())
           properties[prop.Name] = prop.Value.GetString() ?? "";
 
-      var none = new List<Dictionary<string, string>>();
-      if (doc.RootElement.TryGetProperty("Items", out var items) && items.TryGetProperty("None", out var noneItems))
-        foreach (var item in noneItems.EnumerateArray()) {
-          var bag = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-          foreach (var field in item.EnumerateObject())
-            if (field.Value.ValueKind == JsonValueKind.String)
-              bag[field.Name] = field.Value.GetString() ?? "";
-
-          none.Add(bag);
-        }
-
-      return new MsBuildResult(properties, none);
+      doc.RootElement.TryGetProperty("Items", out var items);
+      return new MsBuildResult(properties, ReadItems(items, "None"), ReadItems(items, "ProjectReference"));
     } catch (JsonException) {
       return null;
     }
+  }
+
+  static List<Dictionary<string, string>> ReadItems(JsonElement items, string name) {
+    var result = new List<Dictionary<string, string>>();
+    if (items.ValueKind != JsonValueKind.Object || !items.TryGetProperty(name, out var array))
+      return result;
+
+    foreach (var item in array.EnumerateArray()) {
+      var bag = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+      foreach (var field in item.EnumerateObject())
+        if (field.Value.ValueKind == JsonValueKind.String)
+          bag[field.Name] = field.Value.GetString() ?? "";
+
+      result.Add(bag);
+    }
+
+    return result;
   }
 }
 
@@ -496,34 +599,53 @@ record TypeDoc(
 record MemberDoc(string Name, string Signature, string Summary, int SortRank);
 
 static class ApiExtractor {
-  public static ApiModel Extract(string assemblyPath, string? documentationPath) {
-    var docs = XmlDocs.Load(documentationPath);
+  public static ApiModel Extract(string assemblyPath, string? documentationPath) =>
+    Extract([(assemblyPath, documentationPath)]);
+
+  /// <summary>
+  ///   Builds one merged model from every assembly the package ships, so a meta-package that bundles
+  ///   its references documents what a consumer actually gets.
+  /// </summary>
+  public static ApiModel Extract(IReadOnlyList<(string Assembly, string? Documentation)> inputs) {
     var advisories = new List<string>();
 
     var byName = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-    foreach (var dir in new[] { RuntimeEnvironment.GetRuntimeDirectory(), Path.GetDirectoryName(Path.GetFullPath(assemblyPath))! })
-      foreach (var f in Directory.GetFiles(dir, "*.dll"))
-        byName[Path.GetFileNameWithoutExtension(f)] = f;
+    foreach (var dir in inputs
+               .Select(i => Path.GetDirectoryName(Path.GetFullPath(i.Assembly))!)
+               .Prepend(RuntimeEnvironment.GetRuntimeDirectory())
+               .Distinct(StringComparer.OrdinalIgnoreCase))
+      if (Directory.Exists(dir))
+        foreach (var f in Directory.GetFiles(dir, "*.dll"))
+          byName[Path.GetFileNameWithoutExtension(f)] = f;
 
     using var mlc = new MetadataLoadContext(new PathAssemblyResolver(byName.Values));
-    var assembly = mlc.LoadFromAssemblyPath(Path.GetFullPath(assemblyPath));
 
     var groups = new SortedDictionary<string, List<TypeDoc>>(StringComparer.Ordinal);
     var undocumented = 0;
     var exampleless = new List<string>();
+    var seen = new HashSet<string>(StringComparer.Ordinal);
 
-    foreach (var type in assembly.GetTypes()) {
-      if (!Visibility.IsVisibleApi(type) || Naming.IsCompilerGenerated(type))
-        continue;
+    foreach (var (assemblyPath, documentationPath) in inputs) {
+      var docs = XmlDocs.Load(documentationPath ?? Path.ChangeExtension(assemblyPath, ".xml"));
+      var assembly = mlc.LoadFromAssemblyPath(Path.GetFullPath(assemblyPath));
 
-      var doc = BuildType(type, docs, ref undocumented);
-      var ns = string.IsNullOrEmpty(type.Namespace) ? "(global namespace)" : type.Namespace;
-      if (!groups.TryGetValue(ns, out var list))
-        groups[ns] = list = [];
+      foreach (var type in assembly.GetTypes()) {
+        if (!Visibility.IsVisibleApi(type) || Naming.IsCompilerGenerated(type))
+          continue;
 
-      list.Add(doc);
-      if (doc.Example == null && !doc.IsEnum && type.DeclaringType == null)
-        exampleless.Add(doc.DisplayName);
+        // Two bundled assemblies can legitimately expose the same full type name; document once.
+        if (!seen.Add(type.FullName ?? type.Name))
+          continue;
+
+        var doc = BuildType(type, docs, ref undocumented);
+        var ns = string.IsNullOrEmpty(type.Namespace) ? "(global namespace)" : type.Namespace;
+        if (!groups.TryGetValue(ns, out var list))
+          groups[ns] = list = [];
+
+        list.Add(doc);
+        if (doc.Example == null && !doc.IsEnum && type.DeclaringType == null)
+          exampleless.Add(doc.DisplayName);
+      }
     }
 
     foreach (var list in groups.Values)
@@ -1008,7 +1130,15 @@ sealed class XmlDocs {
             if (paren >= 0)
               cref = cref[..paren];
 
-            sb.Append('`').Append(cref.Split('.')[^1]).Append('`');
+            var name = cref.Split('.')[^1];
+
+            // A generic cref carries its arity as a backtick ("BitBuffer`1"). Left in place it both
+            // reads wrong and terminates the inline code span it sits inside.
+            var tick = name.IndexOf('`');
+            if (tick >= 0)
+              name = name[..tick];
+
+            sb.Append('`').Append(name).Append('`');
             break;
           }
           case "paramref" or "typeparamref":
@@ -1453,7 +1583,7 @@ static class SelfTest {
   }
 
   static void LinterTests() {
-    var pkg = new PackageProject("p.csproj", "p", "My.Pkg", "README.md", "README.md", true, null, null);
+    var pkg = new PackageProject("p.csproj", "p", "My.Pkg", "README.md", "README.md", true, null, null, [], []);
 
     var good = "# My.Pkg\n\n[![NuGet](https://img.shields.io/x)](https://nuget.org/packages/My.Pkg)\n\n> A thing.\n\n"
                + string.Join("\n\n", Linter.RequiredHeadings) + "\n";
