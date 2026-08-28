@@ -1014,6 +1014,25 @@ static class Naming {
     || t.GetProperties(BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly)
       .Any(p => p.Name == "EqualityContract");
 
+  static readonly HashSet<string> Keywords = new(StringComparer.Ordinal) {
+    "abstract", "as", "base", "bool", "break", "byte", "case", "catch", "char", "checked", "class",
+    "const", "continue", "decimal", "default", "delegate", "do", "double", "else", "enum", "event",
+    "explicit", "extern", "false", "finally", "fixed", "float", "for", "foreach", "goto", "if",
+    "implicit", "in", "int", "interface", "internal", "is", "lock", "long", "namespace", "new",
+    "null", "object", "operator", "out", "override", "params", "private", "protected", "public",
+    "readonly", "ref", "return", "sbyte", "sealed", "short", "sizeof", "stackalloc", "static",
+    "string", "struct", "switch", "this", "throw", "true", "try", "typeof", "uint", "ulong",
+    "unchecked", "unsafe", "ushort", "using", "virtual", "void", "volatile", "while"
+  };
+
+  /// <summary>
+  ///   Escapes an identifier that collides with a C# keyword. Extension methods in this codebase
+  ///   name their first parameter <c>@this</c>, which metadata reports as <c>this</c> — printed bare
+  ///   it would render a signature that does not compile.
+  /// </summary>
+  public static string Identifier(string? name) =>
+    name != null && Keywords.Contains(name) ? "@" + name : name ?? "";
+
   /// <summary>The type's own name with no namespace, no generic list and no declaring prefix.</summary>
   public static string BareTypeName(Type t) {
     var name = t.Name;
@@ -1176,6 +1195,34 @@ static class Signatures {
     return sb.ToString();
   }
 
+  /// <summary>
+  ///   Renders a default value as the C# literal it is. Control characters must be escaped rather
+  ///   than emitted raw: a <c>char</c> parameter defaulting to <c>'\0'</c> otherwise writes a NUL
+  ///   byte straight into the README, which turns the file binary.
+  /// </summary>
+  static string Literal(object? value) => value switch {
+    null => "null",
+    bool b => b ? "true" : "false",
+    char c => "'" + Escape(c) + "'",
+    string s => "\"" + string.Concat(s.Select(Escape)) + "\"",
+    _ => Convert.ToString(value, CultureInfo.InvariantCulture) ?? "null"
+  };
+
+  /// <summary>Exposed for the self-test.</summary>
+  public static string LiteralForTest(object? value) => Literal(value);
+
+  static string Escape(char c) => c switch {
+    '\0' => "\\0",
+    '\n' => "\\n",
+    '\r' => "\\r",
+    '\t' => "\\t",
+    '\\' => "\\\\",
+    '\'' => "\\'",
+    '"' => "\\\"",
+    // A pipe is left alone here; escaping it for the markdown table is the cell renderer's job.
+    _ => char.IsControl(c) ? $"\\u{(int)c:X4}" : c.ToString()
+  };
+
   static string Parameters(ParameterInfo[] ps, bool isExtension = false) =>
     string.Join(", ", ps.Select((p, i) => (isExtension && i == 0 ? "this " : "") + Parameter(p)));
 
@@ -1189,18 +1236,9 @@ static class Signatures {
     else if (p.GetCustomAttributesData().Any(a => a.AttributeType.FullName == "System.ParamArrayAttribute"))
       prefix = "params ";
 
-    var suffix = "";
-    if (p.HasDefaultValue) {
-      var v = p.RawDefaultValue;
-      suffix = " = " + v switch {
-        null => "null",
-        string s => "\"" + s + "\"",
-        bool b => b ? "true" : "false",
-        _ => Convert.ToString(v, CultureInfo.InvariantCulture)
-      };
-    }
+    var suffix = p.HasDefaultValue ? " = " + Literal(p.RawDefaultValue) : "";
 
-    return $"{prefix}{Naming.FullDisplayName(p.ParameterType)} {p.Name}{suffix}";
+    return $"{prefix}{Naming.FullDisplayName(p.ParameterType)} {Naming.Identifier(p.Name)}{suffix}";
   }
 }
 
@@ -1471,7 +1509,7 @@ static class Renderer {
       sb.AppendLine(t.IsEnum ? "| Value | Numeric | Summary |" : "| Member | Signature | Summary |");
       sb.AppendLine("| --- | --- | --- |");
       foreach (var m in t.Members)
-        sb.AppendLine($"| {m.Name} | {Cell(m.Signature)} | {Cell(m.Summary)} |");
+        sb.AppendLine($"| {Cell(m.Name)} | {Cell(m.Signature)} | {Cell(m.Summary)} |");
     }
 
     sb.AppendLine();
@@ -1484,7 +1522,14 @@ static class Renderer {
     }
   }
 
-  static string Cell(string s) => s.Replace("\r", "").Replace("\n", " ");
+  /// <summary>
+  ///   Makes a value safe for a markdown table cell. An unescaped pipe splits the row, and a
+  ///   signature can legitimately contain one — <c>operator |</c> does.
+  /// </summary>
+  static string Cell(string s) => s.Replace("\r", "").Replace("\n", " ").Replace("|", "\\|");
+
+  /// <summary>Exposed for the self-test.</summary>
+  public static string CellForTest(string s) => Cell(s);
 
   /// <summary>GitHub's heading-anchor rules, applied to a fenced type heading.</summary>
   public static string Anchor(string display) {
@@ -1666,6 +1711,7 @@ static class SelfTest {
     AnchorTests();
     FlattenTests();
     SpliceTests();
+    LiteralTests();
     LinterTests();
     FixtureTest(verbose);
 
@@ -1760,6 +1806,19 @@ static class SelfTest {
     } catch (SpliceException) {
       ++_passed;
     }
+  }
+
+  static void LiteralTests() {
+    // A raw control character in a default value turns the README into a binary file.
+    Check("literal/nul-char", @"'\0'", Signatures.LiteralForTest('\0'));
+    Check("literal/newline-char", @"'\n'", Signatures.LiteralForTest('\n'));
+    Check("literal/pipe-char", @"'|'", Signatures.LiteralForTest('|'));
+    // "operator |" would otherwise split the markdown table row it sits in.
+    Check("cell/pipe-escaped", @"`operator \|`", Renderer.CellForTest("`operator |`"));
+    Check("literal/string-escapes", "\"a\\\"b\"", Signatures.LiteralForTest("a\"b"));
+    Check("literal/null", "null", Signatures.LiteralForTest(null));
+    Check("identifier/keyword-escaped", "@this", Naming.Identifier("this"));
+    Check("identifier/ordinary-untouched", "value2", Naming.Identifier("value2"));
   }
 
   static void LinterTests() {
