@@ -24,13 +24,14 @@
 | `Directory.Build.props` | Central TFM, nullable, and package/authorship metadata. |
 | `.github/FUNDING.yml` | Sponsors + PayPal button (pairs with the README `## ❤️ Support` section). |
 | `.github/workflows/` | `ci` · `_build` · `nightly` · `release` — thin, and they call the actions below. Plus `self-test`, which runs *here*. |
-| `scripts/` | `version.pl`, `update-changelog.mjs`, `prune-nightlies.mjs`, `package-readme.cs` — the single copy, used by the actions. |
+| `scripts/` | `version.pl`, `update-changelog.mjs`, `prune-nightlies.mjs`, `package-readme.cs`, `publish-generated-file.sh` — the single copy, used by the actions. |
 | `scripts/fixtures/` | The package-readme test fixture and its golden output. |
 | `nuget-publish/` | Composite action: Trusted Publishing push with an acceptance check. |
 | `stamp-version/` | Composite action: stamp per-package versions from files. |
 | `release-notes/` | Composite action: commit-prefix changelog / release notes. |
 | `prune-nightlies/` | Composite action: GFS prune of old nightly releases. |
 | `package-readme/` | Composite action + the package README template and rules. |
+| `publish-generated-file/` | Composite action: commit a generated file through a pull request, signed. |
 
 **Generated repos carry no `scripts/` directory.** The scripts live here once and reach every
 repo through the composite actions, so they cannot drift out of sync.
