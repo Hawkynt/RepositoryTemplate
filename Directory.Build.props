@@ -14,10 +14,10 @@
 
   <!-- Package / authorship metadata (LGPL, same as every Hawkynt repo). Deliberately NO <Version>
        here: each shipping package declares its own MAJOR.MINOR.PATCH in its own csproj, and
-       .github/workflows/scripts/version.pl (stamp mode) appends the commit count of THAT project's
+       scripts/version.pl (stamp mode) appends the commit count of THAT project's
        folder as the BUILD field. A package whose folder did not change therefore composes the
-       identical version on the next release, so a push with --skip-duplicate re-uses what is already
-       published instead of republishing everything. -->
+       identical version on the next release, so a push with the skip-duplicate flag re-uses what is
+       already published instead of republishing everything. -->
   <PropertyGroup>
     <Authors>Hawkynt</Authors>
     <Company>Hawkynt</Company>
