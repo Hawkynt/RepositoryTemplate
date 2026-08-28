@@ -1305,8 +1305,16 @@ static class Renderer {
         RenderType(sb, t);
     }
 
-    return sb.ToString().TrimEnd();
+    return Normalize(sb.ToString());
   }
+
+  /// <summary>
+  ///   The rendered body must not depend on the host's line endings. StringBuilder.AppendLine writes
+  ///   Environment.NewLine, so an unnormalized body is CRLF on Windows and LF on Linux -- which would
+  ///   make the drift check fail purely for running on the other operating system. The splicer puts
+  ///   the file's own convention back afterwards.
+  /// </summary>
+  static string Normalize(string s) => s.Replace("\r\n", "\n").Replace('\r', '\n').TrimEnd();
 
   static void RenderType(StringBuilder sb, TypeDoc t) {
     sb.AppendLine($"#### `{t.DisplayName}`");
@@ -1377,6 +1385,7 @@ static class ReadmeSplicer {
   public static string Splice(string readme, string generated) {
     var newline = readme.Contains("\r\n") ? "\r\n" : "\n";
     var normalized = readme.Replace("\r\n", "\n");
+    generated = generated.Replace("\r\n", "\n").Replace('\r', '\n');
 
     var begin = normalized.IndexOf(BeginMarkerConst, StringComparison.Ordinal);
     var end = normalized.IndexOf(EndMarkerConst, StringComparison.Ordinal);
@@ -1577,6 +1586,23 @@ static class SelfTest {
 
     CheckTrue("splice/preserves-outside-prose",
       ReadmeSplicer.Splice("# Pkg\n\n## 📚 API reference\n\nKeep me.\n\n## 🔌 Dependencies\n", "B").Contains("Keep me."));
+
+    // Line endings must never flap. A CRLF body spliced into an LF README used to leave the file
+    // mixed, so the NEXT write converted the whole thing to CRLF -- two consecutive writes produced
+    // different bytes, and a check on Linux disagreed with a write on Windows.
+    var lfFile = "# Pkg\n\n## 📚 API reference\n\n## 🔌 Dependencies\n";
+    var crlfBody = "line one\r\nline two";
+    var splicedLf = ReadmeSplicer.Splice(lfFile, crlfBody);
+    CheckTrue("splice/lf-file-stays-lf", !splicedLf.Contains('\r'));
+    Check("splice/lf-stable-across-writes", splicedLf, ReadmeSplicer.Splice(splicedLf, crlfBody));
+
+    var crlfFile = lfFile.Replace("\n", "\r\n");
+    var splicedCrlf = ReadmeSplicer.Splice(crlfFile, "line one\nline two");
+    CheckTrue("splice/crlf-file-stays-crlf", !Regex.IsMatch(splicedCrlf, @"(?<!\r)\n"));
+    Check("splice/crlf-stable-across-writes", splicedCrlf, ReadmeSplicer.Splice(splicedCrlf, "line one\nline two"));
+
+    // The same body must splice to the same bytes regardless of the host's line endings.
+    Check("splice/host-independent", splicedLf, ReadmeSplicer.Splice(lfFile, "line one\nline two"));
 
     Throws("splice/unbalanced-begin", () => ReadmeSplicer.Splice("# P\n<!-- API:BEGIN -->\nx\n", "B"));
     Throws("splice/unbalanced-end", () => ReadmeSplicer.Splice("# P\n<!-- API:END -->\n", "B"));
