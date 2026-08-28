@@ -19,6 +19,12 @@ Add one step to the repo's `ci.yml`, after the build:
 The projects must already be built in the configuration being checked (default `Release`), because
 the reference is read from the compiled assembly and its XML documentation file.
 
+**Run it on one operating system, and pick the one where every target assembly resolves.** A package
+targeting `net10.0-windows` cannot resolve its `System.Drawing` types on a runner without the
+WindowsDesktop framework, so the generated reference would legitimately differ between Ubuntu and
+Windows and the drift check would fail for no reason but the runner. In a matrix job, guard the step
+with `if: matrix.os == '...'`.
+
 | Input | Required | Default | Description |
 | --- | :---: | --- | --- |
 | `mode` | no | `check` | `check` fails on drift or a lint violation; `write` rewrites the READMEs. |
