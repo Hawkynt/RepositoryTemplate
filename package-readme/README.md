@@ -30,6 +30,7 @@ with `if: matrix.os == '...'`.
 | `mode` | no | `check` | `check` fails on drift or a lint violation; `write` rewrites the READMEs. |
 | `root` | no | `.` | Repository root to scan. |
 | `configuration` | no | `Release` | Build configuration whose output to read. |
+| `target-framework` | no | `""` | Which TFM of a multi-targeted package to document. Empty picks the newest. |
 | `project` | no | `""` | Newline-separated `.csproj` paths. Empty means discover every packable project. |
 | `dotnet-version` | no | `10.0.x` | SDK channel to install, when the workflow has not already set one. |
 | `upload-artifact` | no | `true` | On failure, upload the regenerated READMEs so the fix is one download away. |
@@ -117,8 +118,10 @@ advertise the framework interfaces every enum implements.
 ## ⚠️ Limitations
 
 - Nullable reference annotations are not yet rendered; `string` and `string?` both read as `string`.
-- One target framework is described per package — the one MSBuild resolves for the configuration
-  being checked. Multi-targeted packages document their primary TFM.
+- One target framework is described per package. A multi-targeted package defaults to its **newest**
+  TFM, which is the wrong choice for a polyfill library — its surface is largest on the *oldest*
+  target, and on the newest there may be almost nothing left to polyfill. Set `target-framework`
+  explicitly for those.
 - Inherited members are not repeated on derived types; each type lists what it declares, with its
   base type named above the table.
 

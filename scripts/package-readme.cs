@@ -31,7 +31,10 @@
 //    dotnet run package-readme.cs -- --self-test          run the built-in suite
 //
 //  Options:
-//    --configuration <cfg>   build configuration to read (default: Release)
+//    --configuration <cfg>       build configuration to read (default: Release)
+//    --target-framework <tfm>    which TFM of a multi-targeted package to document.
+//                                Defaults to the newest, which is wrong for a polyfill
+//                                library whose surface is largest on the OLDEST target.
 //    --project <path>        restrict to one .csproj (repeatable)
 //    --verbose
 //
@@ -58,6 +61,7 @@ static class Cli {
     var mode = (string?)null;
     var root = (string?)null;
     var configuration = "Release";
+    var targetFramework = (string?)null;
     var projects = new List<string>();
     var verbose = false;
 
@@ -75,6 +79,12 @@ static class Cli {
             return Fail("--configuration needs a value.");
 
           configuration = args[i];
+          break;
+        case "--target-framework":
+          if (++i >= args.Length)
+            return Fail("--target-framework needs a value.");
+
+          targetFramework = args[i];
           break;
         case "--project":
           if (++i >= args.Length)
@@ -107,7 +117,7 @@ static class Cli {
     if (!Directory.Exists(root))
       return Fail($"repository root '{root}' does not exist.");
 
-    return Runner.Execute(root, mode == "--write", configuration, projects, verbose);
+    return Runner.Execute(root, mode == "--write", configuration, targetFramework, projects, verbose);
   }
 
   static int Fail(string message) {
@@ -124,7 +134,7 @@ static class Cli {
 // =============================================================================
 
 static class Runner {
-  public static int Execute(string root, bool write, string configuration, List<string> explicitProjects, bool verbose) {
+  public static int Execute(string root, bool write, string configuration, string? targetFramework, List<string> explicitProjects, bool verbose) {
     List<string> candidates;
     if (explicitProjects.Count > 0)
       candidates = explicitProjects.Select(Path.GetFullPath).ToList();
@@ -137,7 +147,7 @@ static class Runner {
 
     var packages = new List<PackageProject>();
     foreach (var proj in candidates) {
-      var info = ProjectDiscovery.Describe(proj, configuration, verbose);
+      var info = ProjectDiscovery.Describe(proj, configuration, targetFramework, verbose);
       if (info == null)
         continue;
 
@@ -379,13 +389,13 @@ static class ProjectDiscovery {
   ///   explicitly, others rely on it defaulting from the .csproj filename. Parsing the XML would
   ///   only see the first kind.
   /// </summary>
-  public static PackageProject? Describe(string projectPath, string configuration, bool verbose) {
+  public static PackageProject? Describe(string projectPath, string configuration, string? targetFramework, bool verbose) {
     string[] wanted = [
       "PackageId", "IsPackable", "OutputType", "PackageReadmeFile",
       "TargetPath", "DocumentationFile", "TargetFramework", "TargetFrameworks"
     ];
 
-    var evaluated = MsBuild.Evaluate(projectPath, configuration, null, wanted);
+    var evaluated = MsBuild.Evaluate(projectPath, configuration, targetFramework, wanted);
 
     if (evaluated == null) {
       if (verbose)
@@ -398,7 +408,9 @@ static class ProjectDiscovery {
     // back empty. Re-evaluate against one framework and document that -- the public surface is
     // normally the same across them, and the chosen one is reported.
     var frameworks = evaluated.Properties.GetValueOrDefault("TargetFrameworks", "");
-    if (string.IsNullOrEmpty(evaluated.Properties.GetValueOrDefault("TargetPath", "")) && !string.IsNullOrEmpty(frameworks)) {
+    if (targetFramework == null
+        && string.IsNullOrEmpty(evaluated.Properties.GetValueOrDefault("TargetPath", ""))
+        && !string.IsNullOrEmpty(frameworks)) {
       var first = frameworks.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).LastOrDefault();
       if (!string.IsNullOrEmpty(first)) {
         if (verbose)
@@ -1758,7 +1770,7 @@ static class SelfTest {
       return;
     }
 
-    var info = ProjectDiscovery.Describe(Path.Combine(fixture, "Fixture.Package.csproj"), "Release", verbose);
+    var info = ProjectDiscovery.Describe(Path.Combine(fixture, "Fixture.Package.csproj"), "Release", null, verbose);
     if (info?.AssemblyPath == null) {
       ++_failed;
       Console.WriteLine("  FAIL fixture: project did not resolve to a packable project with an assembly");

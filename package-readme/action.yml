@@ -14,6 +14,10 @@ inputs:
     description: 'Build configuration whose output to read'
     required: false
     default: 'Release'
+  target-framework:
+    description: 'Which TFM of a multi-targeted package to document. Defaults to the newest.'
+    required: false
+    default: ''
   project:
     description: 'Newline-separated .csproj paths. Empty discovers every packable project.'
     required: false
@@ -44,6 +48,7 @@ runs:
         MODE: ${{ inputs.mode }}
         ROOT: ${{ inputs.root }}
         CONFIGURATION: ${{ inputs.configuration }}
+        TARGET_FRAMEWORK: ${{ inputs.target-framework }}
         PROJECTS: ${{ inputs.project }}
       run: |
         set -euo pipefail
@@ -54,6 +59,7 @@ runs:
         fi
 
         args=(--"$MODE" "$ROOT" --configuration "$CONFIGURATION")
+        [ -n "$TARGET_FRAMEWORK" ] && args+=(--target-framework "$TARGET_FRAMEWORK")
         while IFS= read -r line; do
           [ -n "$line" ] && args+=(--project "$line")
         done <<< "$PROJECTS"
