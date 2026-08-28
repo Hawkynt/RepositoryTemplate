@@ -23,15 +23,33 @@
 | `.gitignore` | .NET / IDE / test / NuGet ignores. |
 | `Directory.Build.props` | Central TFM, nullable, and package/authorship metadata. |
 | `.github/FUNDING.yml` | Sponsors + PayPal button (pairs with the README `## ❤️ Support` section). |
-| `.github/workflows/` | `ci` · `_build` · `nightly` · `release` — thin, and they call the actions below. |
-| `scripts/` | `version.pl`, `update-changelog.mjs`, `prune-nightlies.mjs` — the single copy, used by the actions. |
+| `.github/workflows/` | `ci` · `_build` · `nightly` · `release` — thin, and they call the actions below. Plus `self-test`, which runs *here*. |
+| `scripts/` | `version.pl`, `update-changelog.mjs`, `prune-nightlies.mjs`, `package-readme.cs` — the single copy, used by the actions. |
+| `scripts/fixtures/` | The package-readme test fixture and its golden output. |
 | `nuget-publish/` | Composite action: Trusted Publishing push with an acceptance check. |
 | `stamp-version/` | Composite action: stamp per-package versions from files. |
 | `release-notes/` | Composite action: commit-prefix changelog / release notes. |
 | `prune-nightlies/` | Composite action: GFS prune of old nightly releases. |
+| `package-readme/` | Composite action + the package README template and rules. |
 
-**Generated repos carry no `scripts/` directory.** The three scripts live here once and reach every
+**Generated repos carry no `scripts/` directory.** The scripts live here once and reach every
 repo through the composite actions, so they cannot drift out of sync.
+
+## 📦 Package READMEs
+
+Every NuGet package published from a `Hawkynt/*` repo follows one template, and the
+[`package-readme`](package-readme/) action enforces it. The template is **never copied into a
+consumer repo** — no `docs/` folder, no vendored script; the repo just calls the action:
+
+```yaml
+      - name: Check package READMEs
+        uses: Hawkynt/RepositoryTemplate/package-readme@v1
+```
+
+It also generates each package's `## 📚 API reference` — a complete list of every public and
+protected type and member, read from the built assembly's metadata and merged with its XML docs, with
+show-off examples taken from `<example>` tags in the source. The section is committed, and the check
+fails when it no longer matches the assembly, so the reference cannot quietly go stale.
 
 ## 🔢 Versioning model
 
