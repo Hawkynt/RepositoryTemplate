@@ -52,6 +52,14 @@ on:
         required: false
         type: string
         default: ''
+      advisory-test-args:
+        description: >-
+          A second `dotnet test` whose failure does NOT fail the build — a wall-clock performance
+          tier, typically. Empty runs no second leg. Advisory means advisory: a slow shared runner
+          must not turn a timing assertion into a red pull request.
+        required: false
+        type: string
+        default: ''
       working-directory:
         description: 'Directory the dotnet commands run in. For a repo checked out beside a sibling.'
         required: false
@@ -185,6 +193,16 @@ jobs:
           dotnet test ${{ inputs.test-target != '' && inputs.test-target || inputs.solution }}
           --configuration Release --no-build ${{ inputs.build-args }} ${{ inputs.test-args }}
           --logger "trx;LogFileName=tests.trx"
+
+      # Advisory: a slow shared runner must not turn a timing assertion into a red pull request.
+      - name: Test (advisory)
+        if: ${{ !cancelled() && inputs.advisory-test-args != '' }}
+        continue-on-error: true
+        working-directory: ${{ inputs.working-directory }}
+        run: >
+          dotnet test ${{ inputs.test-target != '' && inputs.test-target || inputs.solution }}
+          --configuration Release --no-build ${{ inputs.build-args }} ${{ inputs.advisory-test-args }}
+          --logger "trx;LogFileName=advisory-tests.trx"
 
       # AFTER the tests, and it runs even when they fail. Ordered the other way it masks them
       # completely: a stale README made this step red, the job stopped, no test ever ran, and the
