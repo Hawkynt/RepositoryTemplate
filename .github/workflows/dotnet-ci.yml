@@ -69,6 +69,16 @@ on:
         required: false
         type: string
         default: '[]'
+      clone-siblings:
+        description: >-
+          JSON array of siblings to git-clone, e.g.
+          '[{"repository":"Hawkynt/CompressionWorkbench","path":"../CompressionWorkbench"}]'.
+          Use this rather than `siblings` when the csproj expects the sibling BESIDE the workspace:
+          actions/checkout cannot place anything outside it, and a path like ../Foo is exactly what
+          a `..\..\Foo\Bar.csproj` ProjectReference resolves to.
+        required: false
+        type: string
+        default: '[]'
       stamp-version:
         description: 'Stamp each package version from files before building.'
         required: false
@@ -135,6 +145,21 @@ jobs:
           path: ${{ fromJSON(inputs.siblings)[0].path }}
           fetch-depth: 1
 
+
+      # Outside the workspace, so actions/checkout cannot do it. Shallow: nothing here needs history.
+      - name: Clone siblings
+        if: ${{ inputs.clone-siblings != '[]' }}
+        shell: bash
+        env:
+          CLONE_SIBLINGS: ${{ inputs.clone-siblings }}
+        run: |
+          echo "$CLONE_SIBLINGS" | jq -r '.[] | "\(.repository)\t\(.path)"' |
+          while IFS=$'\t' read -r repository path; do
+            [ -n "$repository" ] || continue
+            echo "cloning $repository -> $path"
+            git clone --depth 1 "https://github.com/$repository.git" "$GITHUB_WORKSPACE/$path"
+          done
+
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: ${{ inputs.dotnet-version }}
@@ -194,6 +219,21 @@ jobs:
           repository: ${{ fromJSON(inputs.siblings)[0].repository }}
           path: ${{ fromJSON(inputs.siblings)[0].path }}
           fetch-depth: 1
+
+
+      # Outside the workspace, so actions/checkout cannot do it. Shallow: nothing here needs history.
+      - name: Clone siblings
+        if: ${{ inputs.clone-siblings != '[]' }}
+        shell: bash
+        env:
+          CLONE_SIBLINGS: ${{ inputs.clone-siblings }}
+        run: |
+          echo "$CLONE_SIBLINGS" | jq -r '.[] | "\(.repository)\t\(.path)"' |
+          while IFS=$'\t' read -r repository path; do
+            [ -n "$repository" ] || continue
+            echo "cloning $repository -> $path"
+            git clone --depth 1 "https://github.com/$repository.git" "$GITHUB_WORKSPACE/$path"
+          done
 
       - uses: actions/setup-dotnet@v4
         with:
