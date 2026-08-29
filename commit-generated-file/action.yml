@@ -1,0 +1,37 @@
+name: 'Commit a generated file back onto the branch'
+description: >-
+  Put a regenerated file straight onto the working branch that was just pushed, with a GitHub-signed
+  commit and no secret. The cheap half of the pipeline: by the time a pull request exists, the
+  derived files are already part of it.
+
+inputs:
+  file:
+    description: 'Repository-relative path. Your own step must already have regenerated it.'
+    required: true
+  message:
+    description: 'Commit message. House style: starts with + - * # !'
+    required: true
+  volatile:
+    description: >-
+      Extended regex for lines that change every run without meaning anything — a run id, a
+      timestamp. Without it a provenance stamp produces a commit on every push, forever.
+    required: false
+    default: ''
+  token:
+    description: >-
+      Defaults to the workflow token, which is the point: nothing done with it can trigger another
+      workflow, so this commit cannot start a run. Override only if you want it to.
+    required: false
+    default: ${{ github.token }}
+
+runs:
+  using: composite
+  steps:
+    - name: Commit it to the branch
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        FILE: ${{ inputs.file }}
+        MESSAGE: ${{ inputs.message }}
+        VOLATILE: ${{ inputs.volatile }}
+      run: bash "${{ github.action_path }}/../scripts/commit-generated-file.sh"

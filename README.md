@@ -25,15 +25,15 @@
 | `.github/FUNDING.yml` | Sponsors + PayPal button (pairs with the README `## ❤️ Support` section). |
 | `.github/workflows/` | `ci` · `_build` · `nightly` · `release` — thin, and they call the actions below. Plus `self-test`, which runs *here*. |
 | `.github/workflows/dotnet-ci.yml` | **Reusable workflow.** The whole standard CI gate; a repo's own `ci.yml` is a dozen lines calling it. |
-| `scripts/` | `version.pl`, `update-changelog.mjs`, `prune-nightlies.mjs`, `package-readme.cs`, `publish-generated-file.sh` — the single copy, used by the actions. |
+| `scripts/` | `version.pl`, `update-changelog.mjs`, `prune-nightlies.mjs`, `package-readme.cs`, `commit-generated-file.sh`, `assert-generated-file.sh` — the single copy, used by the actions. |
 | `scripts/fixtures/` | The package-readme test fixture and its golden output. |
 | `nuget-publish/` | Composite action: Trusted Publishing push with an acceptance check. |
 | `stamp-version/` | Composite action: stamp per-package versions from files. |
 | `release-notes/` | Composite action: commit-prefix changelog / release notes. |
 | `prune-nightlies/` | Composite action: GFS prune of old nightly releases. |
 | `package-readme/` | Composite action + the package README template and rules. |
-| `assert-generated-file/` | Composite action: fail a pull request when a generated file is stale, and hand back the regenerated one. |
-| `publish-generated-file/` | Composite action, **superseded** by the above. Commits a generated file through a pull request. |
+| `commit-generated-file/` | Composite action: put a regenerated file straight onto the working branch, signed, no secret. |
+| `assert-generated-file/` | Composite action: fail a pull request when a generated file is stale. For what cannot be committed. |
 
 **Generated repos carry no `scripts/` directory.** The scripts live here once and reach every
 repo through the composite actions, so they cannot drift out of sync.
@@ -62,20 +62,35 @@ absolute URL, because a package README renders on nuget.org where a relative lin
 
 ## 🚦 When things run
 
-One rule: **a pull request is the only thing that runs CI, and it has to be green to merge.**
+Four stages, each doing the cheapest thing that is still true. **A push to `main` is forbidden** —
+the `DontDelete` ruleset takes changes through pull requests only.
 
-| Event | What runs |
-| --- | --- |
-| Pull request opened or pushed to | `ci.yml` — the gate. A newer run supersedes the older one. |
-| Merge to `main` | `nightly.yml` — builds and publishes the nightly. It does not re-test. |
-| Manual dispatch | `release.yml` — runs CI itself, packs, publishes, tags. |
+| Event | What runs | Cost |
+| --- | --- | --- |
+| Push to a working branch | `generate.yml` — regenerates the derived files (screenshots, tables, docs) and commits them **straight back onto that branch**. | one small job |
+| Pull request opened or pushed to | `ci.yml` — the full test battery. A newer run supersedes the older one. | the matrix |
+| Merge to `main` | `nightly.yml` — builds and publishes the nightly. It does not re-test. | one build |
+| Manual dispatch | `release.yml` — runs CI itself, packs, publishes, tags. | everything |
 
-Nothing runs on a push to `main` except the nightly. Re-running the same matrix on the merge commit
-proves nothing a green pull request has not already proved, and it was costing a machine every time.
+The generation stage is what keeps the battery honest without making it expensive. By the time a
+pull request exists the derived files are already part of it, so the battery only has to *test*.
+
+Three properties make committing from a branch push safe, and all three are load-bearing:
+
+1. **The commit goes through the contents API, so GitHub signs it.** A commit made by `git` on a
+   runner is unsigned, and `required_signatures` is evaluated over a pull request's *commits* — a
+   squash merge does not launder it — so an unsigned commit would make the branch unmergeable later.
+   Measured with a probe, not assumed.
+2. **Nothing done with `GITHUB_TOKEN` triggers a workflow**, so that commit cannot start another
+   run. There is no loop to fence off; it is impossible by construction.
+3. **It refuses to touch the default branch.**
+
+Nothing runs on a push to `main` except the nightly. Re-running the battery on the merge commit
+proves nothing a green pull request has not already proved.
 
 The trade-off, stated plainly: a squash merge produces a commit no run ever saw — the pull request's
 tree on a base that may have moved. A semantic conflict between two separately green pull requests
-would first surface as a failed nightly build rather than as a failed CI run.
+surfaces as a failed nightly build rather than a failed CI run.
 
 A repo's `ci.yml` should be a dozen lines:
 
@@ -95,8 +110,30 @@ jobs:
       os-matrix: '["ubuntu-latest","windows-latest"]'
 ```
 
+and its `generate.yml` about the same:
+
+```yaml
+on:
+  push:
+    branches-ignore: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  screenshot:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      # ... whatever produces the file ...
+      - uses: Hawkynt/RepositoryTemplate/commit-generated-file@v1
+        with:
+          file: docs/screenshots/main.png
+          message: '* refresh the application screenshot'
+```
+
 Anything exotic — a filesystem driver, a GTK autopilot, an AOT publish — stays a job in the repo's
-own `ci.yml` beside that call. "Most of it", not all of it.
+own `ci.yml` beside the call. "Most of it", not all of it.
 
 ## 🔢 Versioning model
 
