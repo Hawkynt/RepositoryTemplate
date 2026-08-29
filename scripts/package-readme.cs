@@ -623,8 +623,14 @@ static class ProjectDiscovery {
   ///   XML docs are silently not found, and every summary disappears from the generated reference —
   ///   which then reads as drift against a README generated on Windows. Normalizing every
   ///   MSBuild-supplied path on the way in is the only place this has to be remembered.
+  ///   <para>
+  ///     Both separators have to be rewritten, not just the backslash. The path MSBuild hands back is
+  ///     mixed, so on Windows — where the separator already is a backslash — replacing only backslashes
+  ///     is a no-op and the forward slashes survive.
+  ///   </para>
   /// </summary>
-  public static string NormalizeSeparators(string path) => path.Replace('\\', Path.DirectorySeparatorChar);
+  public static string NormalizeSeparators(string path)
+    => path.Replace('\\', Path.DirectorySeparatorChar).Replace('/', Path.DirectorySeparatorChar);
 
   /// <summary>
   ///   PackageReadmeFile names the file inside the package; it does not put it there. Without a
