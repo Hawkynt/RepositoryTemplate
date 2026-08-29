@@ -10,6 +10,14 @@ on:
     branches: [main]
   workflow_call: {}
 
+# Canonical in every repo. Pushing three times to a branch used to queue three full matrices and run
+# all of them, which is how one afternoon's work saturated the account's runners for hours. A newer
+# pull-request run supersedes the older one, so only the last is worth finishing. A push to main is
+# NOT cancelled: main wants a recorded result for every commit, not only for the newest.
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 # Force JavaScript-based actions to run on Node 24 instead of the deprecated Node 20 ahead of
 # the 2026-06-16 hard cutover, until we bump each action to a Node-24-native major version.
 env:

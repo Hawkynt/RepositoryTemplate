@@ -31,7 +31,7 @@
 | `release-notes/` | Composite action: commit-prefix changelog / release notes. |
 | `prune-nightlies/` | Composite action: GFS prune of old nightly releases. |
 | `package-readme/` | Composite action + the package README template and rules. |
-| `publish-generated-file/` | Composite action: commit a generated file through a pull request, signed. |
+| `publish-generated-file/` | Composite action: commit a generated file through a pull request, signed, without starting a CI loop. |
 
 **Generated repos carry no `scripts/` directory.** The scripts live here once and reach every
 repo through the composite actions, so they cannot drift out of sync.

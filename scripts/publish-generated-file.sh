@@ -12,6 +12,13 @@
 #
 # One long-lived branch is reused and force-updated rather than a branch per run, so a generated
 # file is worth exactly one open pull request showing the newest content, not one per run.
+#
+# VOLATILE is what stops this being a perpetual motion machine. A generator that stamps its own run
+# id or the time of day into its output produces a different file on every run, so there is always
+# something to publish: publish → pull request → merge → push to the default branch → CI → generate →
+# publish. DriveBenderUtility ran exactly that loop, on one line reading "Generated from run: NNNN".
+# Lines matching VOLATILE are excluded when deciding whether anything CHANGED — they are still
+# written when something else did change, so the provenance stays truthful without driving the loop.
 set -euo pipefail
 
 : "${BRANCH:?BRANCH is required}"
@@ -21,6 +28,7 @@ set -euo pipefail
 : "${BODY:?BODY is required}"
 : "${GITHUB_REPOSITORY:?}"
 : "${GH_TOKEN:?GH_TOKEN is required}"
+VOLATILE="${VOLATILE:-}"
 
 if [ ! -f "$FILE" ]; then
   echo "::error::$FILE does not exist — the step that generates it produced nothing."
@@ -32,6 +40,24 @@ fi
 if [ -z "$(git status --porcelain -- "$FILE")" ]; then
   echo "::notice::$FILE is unchanged"
   exit 0
+fi
+
+# Something changed textually. Whether it changed MEANINGFULLY is a separate question, and the answer
+# is what decides between a pull request and a quiet exit.
+if [ -n "$VOLATILE" ]; then
+  committed=$(mktemp); regenerated=$(mktemp)
+  trap 'rm -f "$committed" "$regenerated"' EXIT
+
+  # Compared against the default branch, not against the bot branch: the pull request proposes a
+  # change relative to what is merged, so that is the only comparison that decides whether one is
+  # worth opening. A binary file has no lines to filter and git show simply yields it unchanged.
+  git show "HEAD:$FILE" 2>/dev/null | grep -vE "$VOLATILE" > "$committed" || true
+  grep -vE "$VOLATILE" "$FILE" > "$regenerated" || true
+
+  if cmp -s "$committed" "$regenerated"; then
+    echo "::notice::$FILE differs from HEAD only in lines matching /$VOLATILE/ — nothing worth proposing."
+    exit 0
+  fi
 fi
 
 base=$(git rev-parse HEAD)

@@ -20,6 +20,15 @@ inputs:
   body:
     description: 'Pull request body, used only when there is no open one for the branch.'
     required: true
+  volatile:
+    description: >-
+      Extended regex for lines that change every run without meaning anything — a run id, a
+      timestamp, a machine name. They are ignored when deciding whether the file CHANGED, and still
+      written when something else did. Without this, a generator that stamps its own run id publishes
+      on every run: pull request, merge, push, CI, generate, publish, forever. If your generator
+      stamps provenance, this input is not optional in spirit.
+    required: false
+    default: ''
   token:
     description: >-
       The token to act with. Nothing done with GITHUB_TOKEN can trigger another workflow, so a pull
@@ -43,4 +52,5 @@ runs:
         MESSAGE: ${{ inputs.message }}
         TITLE: ${{ inputs.title }}
         BODY: ${{ inputs.body }}
+        VOLATILE: ${{ inputs.volatile }}
       run: bash "${{ github.action_path }}/../scripts/publish-generated-file.sh"
