@@ -84,5 +84,9 @@ runs:
       if: ${{ failure() && inputs.upload-artifact == 'true' && inputs.mode == 'check' }}
       with:
         name: package-readmes
-        path: '**/README.md'
+        # REFERENCE.md as well as README.md: the generated API reference lives in the former, so an
+        # artifact carrying only the latter would hand back the half that rarely changes.
+        path: |
+          **/README.md
+          **/REFERENCE.md
         if-no-files-found: ignore

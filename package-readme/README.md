@@ -42,7 +42,8 @@ Structural violations fail the build:
 - The H1 is exactly the resolved `PackageId`, so the nuget.org page title matches what you install.
 - A badge block directly under the title, then a one-line `>` blockquote.
 - The required headings, present and in the canonical order below.
-- The `## 📚 API reference` region matches the assembly. This is the drift check.
+- The package's `REFERENCE.md` matches the assembly, and the `## 📚 API reference` region points at
+  it. This is the drift check.
 - `PackageReadmeFile` is set, points at a file that exists, and that file is actually packed via a
   `Pack="true"` `None` item. `PackageReadmeFile` names the README inside the package; it does not put
   it there, and without the item `dotnet pack` fails NU5039.
@@ -62,7 +63,7 @@ optional heading only when it genuinely does not apply.
 | `## ✨ Features` | ✅ | User-visible capability. Not implementation trivia. |
 | `## 🧩 Support matrix` | ⚠️ | Required when capability varies by format, algorithm, codec or operation. |
 | `## 🚀 Quick start` | ✅ | Smallest realistic example proving the package's value. |
-| `## 📚 API reference` | ✅ | Generated. Complete list of public and protected types and members. |
+| `## 📚 API reference` | ✅ | Generated. One line linking to `REFERENCE.md`, which holds the complete list. |
 | `## 🏗️ Architecture` | — | Optional, plus any other package-specific sections. |
 | `## 🔌 Dependencies` | ✅ | Table when there is more than one meaningful dependency. |
 | `## ⚠️ Limitations` | ✅ | What a green check would otherwise conceal. |
@@ -108,8 +109,9 @@ from.
    executed** — and every `public` and `protected` type and member is collected. Because the list
    comes from metadata, the reference is complete by construction.
 3. The XML documentation file is merged on by doc-comment ID for summaries and examples.
-4. The result is spliced between the markers. Ordering is deterministic (namespace → type → member
-   kind → name → signature), so regenerating twice never churns the file.
+4. The result is written to `REFERENCE.md` next to the package README, and a one-line pointer to it
+   is spliced between the README's markers. Ordering is deterministic (namespace → type → member
+   kind → name → signature), so regenerating twice never churns either file.
 
 Compiler plumbing is excluded: property and event accessors appear as their property or event,
 delegates show the signature they stand for rather than `BeginInvoke`/`EndInvoke`, and enums do not

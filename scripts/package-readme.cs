@@ -166,7 +166,7 @@ static class Runner {
 
     foreach (var pkg in packages) {
       Console.WriteLine($"==> {pkg.PackageId}");
-      var pkgFindings = Process(pkg, write, ref rewritten);
+      var pkgFindings = Process(pkg, root, write, ref rewritten);
       foreach (var f in pkgFindings)
         Console.WriteLine($"    {(f.Advisory ? "warning" : "ERROR  ")} {f.Message}");
 
@@ -178,7 +178,7 @@ static class Runner {
 
     Console.WriteLine();
     if (write)
-      Console.WriteLine($"{rewritten} README(s) rewritten, {errors} error(s), {warnings} warning(s).");
+      Console.WriteLine($"{rewritten} file(s) rewritten, {errors} error(s), {warnings} warning(s).");
     else
       Console.WriteLine($"{packages.Count} package(s) checked, {errors} error(s), {warnings} warning(s).");
 
@@ -192,7 +192,7 @@ static class Runner {
     return errors > 0 ? 1 : 0;
   }
 
-  static List<Finding> Process(PackageProject pkg, bool write, ref int rewritten) {
+  static List<Finding> Process(PackageProject pkg, string root, bool write, ref int rewritten) {
     var findings = new List<Finding>();
 
     if (pkg.ReadmePath == null) {
@@ -267,13 +267,32 @@ static class Runner {
       return findings;
     }
 
+    // The reference is a file of its own. FrameworkExtensions.Corlib generates ~973 KB of tables,
+    // and a README that size is not a README any more — nuget.org truncates it, GitHub asks before
+    // rendering it, and the six hand-written paragraphs a consumer actually needs first are buried
+    // under four hundred types. README keeps the prose and points at REFERENCE.md.
+    var referencePath = Path.Combine(Path.GetDirectoryName(pkg.ReadmePath)!, ReferenceDocument.FileName);
+    var referenceRelative = Relative(root, referencePath);
+
+    var referenceUrl = ReferenceDocument.Url(pkg, referenceRelative);
+    if (referenceUrl == null) {
+      findings.Add(Finding.Error(
+        $"{pkg.ProjectName}: no <RepositoryUrl> or <PackageProjectUrl>, so the README cannot link to " +
+        $"{referenceRelative}. A package README renders on nuget.org, where a relative link resolves nowhere."));
+      return findings;
+    }
+
     string updated;
     try {
-      updated = ReadmeSplicer.Splice(original, generated);
+      updated = ReadmeSplicer.Splice(original, ReadmeSplicer.Pointer(referenceUrl, model.TypeCount));
     } catch (SpliceException e) {
       findings.Add(Finding.Error($"{pkg.ProjectName}: {e.Message}"));
       return findings;
     }
+
+    var existingReference = File.Exists(referencePath) ? File.ReadAllText(referencePath) : "";
+    var newReference = ReferenceDocument.Build(pkg, generated, existingReference, original,
+      ReferenceDocument.Url(pkg, Relative(root, pkg.ReadmePath)));
 
     if (write) {
       if (!string.Equals(updated, original, StringComparison.Ordinal)) {
@@ -281,13 +300,34 @@ static class Runner {
         ++rewritten;
         Console.WriteLine($"    rewrote {pkg.ReadmeRelative}");
       }
-    } else if (!string.Equals(updated, original, StringComparison.Ordinal))
+
+      if (!string.Equals(newReference, existingReference, StringComparison.Ordinal)) {
+        File.WriteAllText(referencePath, newReference);
+        ++rewritten;
+        Console.WriteLine($"    rewrote {referenceRelative}");
+      }
+
+      return findings;
+    }
+
+    if (!string.Equals(updated, original, StringComparison.Ordinal))
       findings.Add(Finding.Error(
-        $"{pkg.ProjectName}: the API reference in '{pkg.ReadmeRelative}' is out of date with the assembly. " +
+        $"{pkg.ProjectName}: the API reference section in '{pkg.ReadmeRelative}' is out of date. " +
         Diff.Describe(original, updated)));
+
+    if (!string.Equals(newReference, existingReference, StringComparison.Ordinal))
+      findings.Add(Finding.Error(
+        existingReference.Length == 0
+          ? $"{pkg.ProjectName}: '{referenceRelative}' does not exist. The generated API reference lives there now."
+          : $"{pkg.ProjectName}: the API reference in '{referenceRelative}' is out of date with the assembly. " +
+            Diff.Describe(existingReference, newReference)));
 
     return findings;
   }
+
+  /// <summary>Repository-relative, forward-slashed — it goes into a URL and into a log line.</summary>
+  static string Relative(string root, string path) =>
+    Path.GetRelativePath(Path.GetFullPath(root), path).Replace('\\', '/');
 }
 
 record Finding(string Message, bool Advisory) {
@@ -328,7 +368,8 @@ record PackageProject(
   string? DocumentationPath,
   List<string> BundledAssemblies,
   List<string> MissingBundles,
-  string TargetFramework);
+  string TargetFramework,
+  string RepositoryUrl);
 
 static class ProjectDiscovery {
   static readonly string[] SkipDirectories = [
@@ -413,7 +454,8 @@ static class ProjectDiscovery {
   public static PackageProject? Describe(string projectPath, string configuration, string? targetFramework, bool verbose) {
     string[] wanted = [
       "PackageId", "IsPackable", "OutputType", "PackageReadmeFile",
-      "TargetPath", "DocumentationFile", "TargetFramework", "TargetFrameworks"
+      "TargetPath", "DocumentationFile", "TargetFramework", "TargetFrameworks",
+      "RepositoryUrl", "PackageProjectUrl"
     ];
 
     var evaluated = MsBuild.Evaluate(projectPath, configuration, targetFramework, wanted);
@@ -481,7 +523,8 @@ static class ProjectDiscovery {
       docPath,
       bundled,
       missing,
-      props.GetValueOrDefault("TargetFramework", ""));
+      props.GetValueOrDefault("TargetFramework", ""),
+      FirstNonEmpty(props.GetValueOrDefault("RepositoryUrl", ""), props.GetValueOrDefault("PackageProjectUrl", "")));
   }
 
   /// <summary>
@@ -569,6 +612,9 @@ static class ProjectDiscovery {
     var byAssemblyName = Path.Combine(outputDir, declared.Groups[1].Value.Trim() + ".dll");
     return File.Exists(byAssemblyName) ? byAssemblyName : null;
   }
+
+  static string FirstNonEmpty(params string[] candidates) =>
+    Array.Find(candidates, c => !string.IsNullOrWhiteSpace(c)) ?? "";
 
   /// <summary>
   ///   MSBuild reports paths with Windows separators whatever the host OS: on Linux
@@ -679,7 +725,10 @@ static class MsBuild {
 //  API model
 // =============================================================================
 
-record ApiModel(List<NamespaceGroup> Namespaces, List<string> Advisories);
+record ApiModel(List<NamespaceGroup> Namespaces, List<string> Advisories) {
+  /// <summary>How many types the reference documents, which is what the README's pointer promises.</summary>
+  public int TypeCount => this.Namespaces.Sum(n => n.Types.Count);
+}
 record NamespaceGroup(string Name, List<TypeDoc> Types);
 
 record TypeDoc(
@@ -1564,7 +1613,83 @@ sealed class SpliceException(string message) : Exception(message);
 
 sealed class ApiExtractionException(string message) : Exception(message);
 
+/// <summary>
+///   The generated reference as a file of its own.
+///   <para>
+///     It used to be spliced into the README. FrameworkExtensions.Corlib generates about 973 KB of
+///     tables across 382 types, and a README that size is not a README any more: nuget.org truncates
+///     it, GitHub asks before rendering it, and the handful of hand-written paragraphs a consumer
+///     needs first are buried under four hundred types. The README keeps the prose and points here.
+///   </para>
+///   <para>
+///     The pointer is an absolute URL because a package README renders on nuget.org, where a
+///     relative link resolves nowhere — the same rule the linter enforces on every other link.
+///   </para>
+/// </summary>
+static class ReferenceDocument {
+  public const string FileName = "REFERENCE.md";
+
+  /// <summary>
+  ///   Where the README should point. A repository URL may be an scp-style or .git-suffixed clone
+  ///   URL; nuget.org renders what it is given, so it is normalized to something a browser opens.
+  /// </summary>
+  public static string? Url(PackageProject pkg, string relativePath) {
+    var repository = pkg.RepositoryUrl.Trim();
+    if (repository.Length == 0)
+      return null;
+
+    if (repository.StartsWith("git@", StringComparison.OrdinalIgnoreCase))
+      repository = "https://" + repository[4..].Replace(':', '/');
+
+    repository = Regex.Replace(repository, @"^git\+", "", RegexOptions.IgnoreCase);
+    if (repository.EndsWith(".git", StringComparison.OrdinalIgnoreCase))
+      repository = repository[..^4];
+
+    repository = repository.TrimEnd('/');
+    if (!repository.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+      return null;
+
+    // Uri.EscapeDataString would escape the separators too. Only a space needs handling in practice,
+    // and a repository whose folders contain one is a problem long before this line.
+    return $"{repository}/blob/main/{relativePath.Replace(" ", "%20")}";
+  }
+
+  /// <summary>
+  ///   The whole file, header and all. It is generated end to end — unlike the README there is no
+  ///   hand-written prose here to preserve, which is the point of moving it out.
+  /// </summary>
+  public static string Build(PackageProject pkg, string generated, string existing, string readme, string? readmeUrl) {
+    var newline = (existing.Length > 0 ? existing : readme).Contains("\r\n") ? "\r\n" : "\n";
+
+    // Someone who followed the link from nuget.org has no other way back to the prose.
+    var back = readmeUrl == null ? "" : $"[← {pkg.PackageId}]({readmeUrl})\n\n";
+
+    var text = $"# {pkg.PackageId} — API reference\n\n"
+             + back
+             + Banner + "\n\n"
+             + "> Every public and protected type and member, read from the built assembly and merged\n"
+             + "> with its XML documentation. Generated — edit the XML docs in source, not this file.\n\n"
+             + generated.Replace("\r\n", "\n").Replace('\r', '\n').TrimEnd() + "\n";
+
+    text = Regex.Replace(text, @"\n{3,}", "\n\n");
+    return newline == "\n" ? text : text.Replace("\n", "\r\n");
+  }
+
+  public const string Banner =
+    "<!-- generated by Hawkynt/RepositoryTemplate/package-readme — edit the XML docs in source, not here -->";
+}
+
 static class ReadmeSplicer {
+  /// <summary>
+  ///   What stands in the README where the reference used to be: one line saying what is there and
+  ///   where it went. Counting the types is what makes it worth following rather than boilerplate.
+  /// </summary>
+  public static string Pointer(string referenceUrl, int typeCount) {
+    var types = typeCount == 1 ? "1 type" : $"{typeCount} types";
+    return $"Every public and protected member of all {types}, generated from the built assembly and "
+         + $"its XML documentation, is in [{ReferenceDocument.FileName}]({referenceUrl}).";
+  }
+
   /// <summary>
   ///   Replaces only the marked region, so every hand-written word outside it survives.
   /// </summary>
@@ -1842,10 +1967,51 @@ static class SelfTest {
     Check("msbuild-path/forward-slashes-untouched",
       $"obj{sep}Release{sep}Thing.xml",
       ProjectDiscovery.NormalizeSeparators($"obj{sep}Release{sep}Thing.xml"));
+
+    // A package README renders on nuget.org, so the link to the reference has to be absolute and has
+    // to be something a browser opens — not whatever clone URL the csproj happened to record.
+    static PackageProject WithRepository(string url) =>
+      new("p.csproj", "p", "My.Pkg", "README.md", "README.md", true, null, null, [], [], "net10.0", url);
+
+    Check("reference-url/plain",
+      "https://github.com/Hawkynt/Example/blob/main/Lib/REFERENCE.md",
+      ReferenceDocument.Url(WithRepository("https://github.com/Hawkynt/Example"), "Lib/REFERENCE.md")!);
+    Check("reference-url/dot-git-stripped",
+      "https://github.com/Hawkynt/Example/blob/main/REFERENCE.md",
+      ReferenceDocument.Url(WithRepository("https://github.com/Hawkynt/Example.git"), "REFERENCE.md")!);
+    Check("reference-url/trailing-slash-stripped",
+      "https://github.com/Hawkynt/Example/blob/main/REFERENCE.md",
+      ReferenceDocument.Url(WithRepository("https://github.com/Hawkynt/Example/"), "REFERENCE.md")!);
+    Check("reference-url/scp-form-normalized",
+      "https://github.com/Hawkynt/Example/blob/main/REFERENCE.md",
+      ReferenceDocument.Url(WithRepository("git@github.com:Hawkynt/Example.git"), "REFERENCE.md")!);
+    Check("reference-url/space-escaped",
+      "https://github.com/Hawkynt/Example/blob/main/My%20Lib/REFERENCE.md",
+      ReferenceDocument.Url(WithRepository("https://github.com/Hawkynt/Example"), "My Lib/REFERENCE.md")!);
+    CheckTrue("reference-url/absent-repository-is-null",
+      ReferenceDocument.Url(WithRepository(""), "REFERENCE.md") == null);
+
+    // The pointer is what a reader meets in the README, so it says how much is behind the link.
+    CheckTrue("pointer/counts-types",
+      ReadmeSplicer.Pointer("https://x/REFERENCE.md", 382).Contains("all 382 types"));
+    CheckTrue("pointer/singular",
+      ReadmeSplicer.Pointer("https://x/REFERENCE.md", 1).Contains("all 1 type,"));
+    CheckTrue("pointer/links-absolutely",
+      ReadmeSplicer.Pointer("https://x/REFERENCE.md", 3).Contains("(https://x/REFERENCE.md)"));
+    CheckTrue("pointer/survives-the-link-linter",
+      Linter.Check(GoodReadme().Replace("## 📚 API reference",
+          "## 📚 API reference\n\n" + ReadmeSplicer.Pointer("https://x/REFERENCE.md", 3)),
+        WithRepository("https://github.com/Hawkynt/Example")).All(f => f.Advisory));
   }
 
+  /// <summary>A README that passes every structural rule, for tests that alter one thing about it.</summary>
+  static string GoodReadme() =>
+    "# My.Pkg\n\n[![NuGet](https://img.shields.io/x)](https://nuget.org/packages/My.Pkg)\n\n> A thing.\n\n"
+    + string.Join("\n\n", Linter.RequiredHeadings) + "\n";
+
   static void LinterTests() {
-    var pkg = new PackageProject("p.csproj", "p", "My.Pkg", "README.md", "README.md", true, null, null, [], [], "net10.0");
+    var pkg = new PackageProject("p.csproj", "p", "My.Pkg", "README.md", "README.md", true, null, null, [], [], "net10.0",
+      "https://github.com/Hawkynt/Example");
 
     var good = "# My.Pkg\n\n[![NuGet](https://img.shields.io/x)](https://nuget.org/packages/My.Pkg)\n\n> A thing.\n\n"
                + string.Join("\n\n", Linter.RequiredHeadings) + "\n";

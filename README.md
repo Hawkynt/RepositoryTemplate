@@ -47,10 +47,16 @@ consumer repo** — no `docs/` folder, no vendored script; the repo just calls t
         uses: Hawkynt/RepositoryTemplate/package-readme@v1
 ```
 
-It also generates each package's `## 📚 API reference` — a complete list of every public and
-protected type and member, read from the built assembly's metadata and merged with its XML docs, with
-show-off examples taken from `<example>` tags in the source. The section is committed, and the check
-fails when it no longer matches the assembly, so the reference cannot quietly go stale.
+It also generates each package's API reference — every public and protected type and member, read
+from the built assembly's metadata and merged with its XML docs, with show-off examples taken from
+`<example>` tags in the source. It is written to the package's own **`REFERENCE.md`**, and the
+README's `## 📚 API reference` section carries one line pointing at it. Both are committed, and the
+check fails when either no longer matches the assembly, so the reference cannot quietly go stale.
+
+The reference is a file of its own because it outgrew the README: `FrameworkExtensions.Corlib`
+generates about 973 KB across 382 types, and a README that size is not a README — nuget.org truncates
+it and the paragraphs a consumer needs first are buried under four hundred types. The pointer is an
+absolute URL, because a package README renders on nuget.org where a relative link resolves nowhere.
 
 ## 🔢 Versioning model
 
