@@ -1,53 +1,26 @@
 name: CI
 
-# Rename ProjectName.sln below to this repo's solution. The `if:` guard keeps the job from running
-# in the RepositoryTemplate repo itself (no solution to build); it is harmless in generated repos
-# because their repository name never equals the template's.
+# The gate a pull request has to pass. Rename ProjectName.sln below to this repo's solution.
+#
+# It does NOT run on a push to main. A pull request must be green to merge, so re-running the same
+# matrix on the merge commit proves nothing and costs a machine — the nightly builds main after the
+# merge instead. `workflow_call` stays, because release.yml runs this as its own first gate.
+#
+# Almost everything lives in the shared reusable workflow; a repo with something exotic keeps that
+# one job here and lets the shared one do the rest.
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
   workflow_call: {}
-
-# Canonical in every repo. Pushing three times to a branch used to queue three full matrices and run
-# all of them, which is how one afternoon's work saturated the account's runners for hours. A newer
-# pull-request run supersedes the older one, so only the last is worth finishing. A push to main is
-# NOT cancelled: main wants a recorded result for every commit, not only for the newest.
-concurrency:
-  group: ci-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
-# Force JavaScript-based actions to run on Node 24 instead of the deprecated Node 20 ahead of
-# the 2026-06-16 hard cutover, until we bump each action to a Node-24-native major version.
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+  workflow_dispatch: {}
 
 jobs:
-  test:
+  # The `if:` guard keeps this from running in RepositoryTemplate itself, which has no solution to
+  # build. It is harmless in generated repos: their name never equals the template's.
+  ci:
     if: ${{ github.repository != 'Hawkynt/RepositoryTemplate' }}
-    name: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0                          # version.pl needs full history
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '10.0.x'
-      - name: Restore
-        run: dotnet restore ProjectName.sln
-      - name: Build
-        run: dotnet build ProjectName.sln --configuration Release --no-restore
-      - name: Test
-        run: dotnet test ProjectName.sln --configuration Release --no-build --logger "trx;LogFileName=tests.trx"
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-results-${{ matrix.os }}
-          path: '**/TestResults/*.trx'
+    uses: Hawkynt/RepositoryTemplate/.github/workflows/dotnet-ci.yml@v1
+    with:
+      solution: ProjectName.sln
+      dotnet-version: '10.0.x'
+      os-matrix: '["ubuntu-latest","windows-latest"]'

@@ -24,6 +24,7 @@
 | `Directory.Build.props` | Central TFM, nullable, and package/authorship metadata. |
 | `.github/FUNDING.yml` | Sponsors + PayPal button (pairs with the README `## ❤️ Support` section). |
 | `.github/workflows/` | `ci` · `_build` · `nightly` · `release` — thin, and they call the actions below. Plus `self-test`, which runs *here*. |
+| `.github/workflows/dotnet-ci.yml` | **Reusable workflow.** The whole standard CI gate; a repo's own `ci.yml` is a dozen lines calling it. |
 | `scripts/` | `version.pl`, `update-changelog.mjs`, `prune-nightlies.mjs`, `package-readme.cs`, `publish-generated-file.sh` — the single copy, used by the actions. |
 | `scripts/fixtures/` | The package-readme test fixture and its golden output. |
 | `nuget-publish/` | Composite action: Trusted Publishing push with an acceptance check. |
@@ -57,6 +58,44 @@ The reference is a file of its own because it outgrew the README: `FrameworkExte
 generates about 973 KB across 382 types, and a README that size is not a README — nuget.org truncates
 it and the paragraphs a consumer needs first are buried under four hundred types. The pointer is an
 absolute URL, because a package README renders on nuget.org where a relative link resolves nowhere.
+
+## 🚦 When things run
+
+One rule: **a pull request is the only thing that runs CI, and it has to be green to merge.**
+
+| Event | What runs |
+| --- | --- |
+| Pull request opened or pushed to | `ci.yml` — the gate. A newer run supersedes the older one. |
+| Merge to `main` | `nightly.yml` — builds and publishes the nightly. It does not re-test. |
+| Manual dispatch | `release.yml` — runs CI itself, packs, publishes, tags. |
+
+Nothing runs on a push to `main` except the nightly. Re-running the same matrix on the merge commit
+proves nothing a green pull request has not already proved, and it was costing a machine every time.
+
+The trade-off, stated plainly: a squash merge produces a commit no run ever saw — the pull request's
+tree on a base that may have moved. A semantic conflict between two separately green pull requests
+would first surface as a failed nightly build rather than as a failed CI run.
+
+A repo's `ci.yml` should be a dozen lines:
+
+```yaml
+on:
+  pull_request:
+    branches: [main]
+  workflow_call: {}
+  workflow_dispatch: {}
+
+jobs:
+  ci:
+    uses: Hawkynt/RepositoryTemplate/.github/workflows/dotnet-ci.yml@v1
+    with:
+      solution: MyThing.sln
+      dotnet-version: '10.0.x'
+      os-matrix: '["ubuntu-latest","windows-latest"]'
+```
+
+Anything exotic — a filesystem driver, a GTK autopilot, an AOT publish — stays a job in the repo's
+own `ci.yml` beside that call. "Most of it", not all of it.
 
 ## 🔢 Versioning model
 

@@ -1,0 +1,224 @@
+name: .NET CI
+
+# The shared CI gate. Every generated repo calls this instead of carrying its own copy:
+#
+#     jobs:
+#       ci:
+#         uses: Hawkynt/RepositoryTemplate/.github/workflows/dotnet-ci.yml@v1
+#         with:
+#           solution: MyThing.sln
+#
+# It runs ONLY from a pull request in the calling repo. Nothing runs on a push to the default
+# branch any more: a pull request must be green to merge, so re-running the same matrix on the
+# merge commit proves nothing and costs a machine. Nightlies build from main after the merge.
+#
+# A repo with something exotic — a filesystem driver, a GTK autopilot, an AOT publish — keeps that
+# job in its own ci.yml and calls this for the standard part. "Most of it", not all of it.
+
+on:
+  workflow_call:
+    inputs:
+      solution:
+        description: 'Solution or project to restore, build and test. The one required input.'
+        required: true
+        type: string
+      dotnet-version:
+        description: 'SDK channel(s) for setup-dotnet. Multi-line for several.'
+        required: false
+        type: string
+        default: '8.x'
+      runs-on:
+        description: 'Runner for the single-OS case. Ignored when os-matrix is set.'
+        required: false
+        type: string
+        default: 'windows-latest'
+      os-matrix:
+        description: 'JSON array of runners, e.g. ''["ubuntu-latest","windows-latest"]''. Empty means the single runner above.'
+        required: false
+        type: string
+        default: ''
+      build-args:
+        description: 'Extra arguments for restore and build, e.g. -p:DisableILRepack=true.'
+        required: false
+        type: string
+        default: ''
+      test-target:
+        description: 'What to test. Defaults to the solution.'
+        required: false
+        type: string
+        default: ''
+      test-args:
+        description: 'Extra arguments for dotnet test, typically a --filter.'
+        required: false
+        type: string
+        default: ''
+      working-directory:
+        description: 'Directory the dotnet commands run in. For a repo checked out beside a sibling.'
+        required: false
+        type: string
+        default: '.'
+      checkout-path:
+        description: 'Where to check this repo out. Set it only when a sibling has to sit next to it.'
+        required: false
+        type: string
+        default: ''
+      siblings:
+        description: >-
+          JSON array of sibling repositories a cross-workspace ProjectReference needs, e.g.
+          '[{"repository":"Hawkynt/C--FrameworkExtensions","path":"C--FrameworkExtensions"}]'.
+        required: false
+        type: string
+        default: '[]'
+      stamp-version:
+        description: 'Stamp each package version from files before building.'
+        required: false
+        type: boolean
+        default: true
+      package-readme:
+        description: 'Check the package READMEs and their generated API reference against the assemblies.'
+        required: false
+        type: boolean
+        default: true
+      package-readme-os:
+        description: >-
+          Which runner performs that check when os-matrix is set. Exactly one must, or the
+          reference would depend on which runner produced it. Empty means the first in the matrix.
+        required: false
+        type: string
+        default: ''
+      package-readme-root:
+        description: 'Root the check scans. Defaults to working-directory, which is what a sibling layout needs.'
+        required: false
+        type: string
+        default: ''
+      coverage:
+        description: 'Run the separate coverage leg.'
+        required: false
+        type: boolean
+        default: true
+      coverage-target:
+        description: 'What to measure coverage on. Defaults to test-target, then the solution.'
+        required: false
+        type: string
+        default: ''
+
+# A newer run for the same pull request supersedes the older one. Three pushes in a row used to
+# queue three full matrices and run all of them.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  test:
+    name: test${{ inputs.os-matrix != '' && format(' {0}', matrix.os) || '' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(inputs.os-matrix != '' && inputs.os-matrix || format('["{0}"]', inputs.runs-on)) }}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: ${{ inputs.checkout-path }}
+          fetch-depth: 0                          # the version scripts count commits
+
+      # A cross-workspace ProjectReference resolves only when the sibling sits where the csproj
+      # expects it. Shallow: nothing here needs its history.
+      - name: Check out siblings
+        if: ${{ inputs.siblings != '[]' }}
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ fromJSON(inputs.siblings)[0].repository }}
+          path: ${{ fromJSON(inputs.siblings)[0].path }}
+          fetch-depth: 1
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ inputs.dotnet-version }}
+
+      - name: Stamp versions
+        if: ${{ inputs.stamp-version }}
+        uses: Hawkynt/RepositoryTemplate/stamp-version@v1
+        with:
+          mode: stamp
+
+      - name: Restore
+        working-directory: ${{ inputs.working-directory }}
+        run: dotnet restore ${{ inputs.solution }} ${{ inputs.build-args }}
+
+      - name: Build
+        working-directory: ${{ inputs.working-directory }}
+        run: dotnet build ${{ inputs.solution }} --configuration Release --no-restore ${{ inputs.build-args }}
+
+      # Exactly one runner does this. The reference is committed, so it must not depend on which
+      # machine produced it.
+      - name: Check package READMEs
+        if: ${{ inputs.package-readme && (inputs.os-matrix == '' || matrix.os == (inputs.package-readme-os != '' && inputs.package-readme-os || fromJSON(inputs.os-matrix)[0])) }}
+        uses: Hawkynt/RepositoryTemplate/package-readme@v1
+        with:
+          root: ${{ inputs.package-readme-root != '' && inputs.package-readme-root || inputs.working-directory }}
+
+      - name: Test
+        working-directory: ${{ inputs.working-directory }}
+        run: >
+          dotnet test ${{ inputs.test-target != '' && inputs.test-target || inputs.solution }}
+          --configuration Release --no-build ${{ inputs.build-args }} ${{ inputs.test-args }}
+          --logger "trx;LogFileName=tests.trx"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results${{ inputs.os-matrix != '' && format('-{0}', matrix.os) || '' }}
+          path: '**/TestResults/*.trx'
+          if-no-files-found: ignore
+
+  coverage:
+    if: ${{ inputs.coverage }}
+    runs-on: ${{ inputs.os-matrix != '' && fromJSON(inputs.os-matrix)[0] || inputs.runs-on }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: ${{ inputs.checkout-path }}
+          fetch-depth: 0
+
+      - name: Check out siblings
+        if: ${{ inputs.siblings != '[]' }}
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ fromJSON(inputs.siblings)[0].repository }}
+          path: ${{ fromJSON(inputs.siblings)[0].path }}
+          fetch-depth: 1
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ inputs.dotnet-version }}
+
+      - name: Stamp versions
+        if: ${{ inputs.stamp-version }}
+        uses: Hawkynt/RepositoryTemplate/stamp-version@v1
+        with:
+          mode: stamp
+
+      - name: Test with coverage
+        working-directory: ${{ inputs.working-directory }}
+        run: >
+          dotnet test ${{ inputs.coverage-target != '' && inputs.coverage-target || (inputs.test-target != '' && inputs.test-target || inputs.solution) }}
+          --configuration Release ${{ inputs.build-args }} ${{ inputs.test-args }}
+          --collect:"XPlat Code Coverage" --results-directory ./coverage
+
+      - name: Generate coverage report
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+        run: |
+          dotnet tool install -g dotnet-reportgenerator-globaltool
+          reportgenerator -reports:./coverage/**/coverage.cobertura.xml -targetdir:./coverage/report -reporttypes:HtmlInline_AzurePipelines
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: ${{ inputs.working-directory }}/coverage/report
+          if-no-files-found: ignore
