@@ -1,0 +1,45 @@
+name: 'Assert a generated file is current'
+description: >-
+  Fail a pull request when a generated file in the working tree differs from the committed one, and
+  hand back the regenerated file as an artifact. The house alternative to a bot that publishes it.
+
+inputs:
+  file:
+    description: 'Repository-relative path. Your own step must already have regenerated it.'
+    required: true
+  hint:
+    description: 'How to regenerate it. This is what the failure tells the author, so make it actionable.'
+    required: true
+  volatile:
+    description: >-
+      Extended regex for lines that change every run without meaning anything — a run id, a
+      timestamp. Without it a provenance stamp fails this check on every unrelated pull request.
+    required: false
+    default: ''
+  artifact:
+    description: 'Artifact name for the regenerated file. Empty derives one from the path.'
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Is it current?
+      id: check
+      shell: bash
+      env:
+        FILE: ${{ inputs.file }}
+        HINT: ${{ inputs.hint }}
+        VOLATILE: ${{ inputs.volatile }}
+      run: bash "${{ github.action_path }}/../scripts/assert-generated-file.sh"
+
+    # Only on failure, and the fix is the download. A screenshot cannot be regenerated on a
+    # contributor's Linux box at all, so handing the file over is the difference between an
+    # actionable failure and a dead end.
+    - name: Hand over the regenerated file
+      if: ${{ failure() }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.artifact != '' && inputs.artifact || format('generated-{0}', hashFiles(inputs.file)) }}
+        path: ${{ inputs.file }}
+        if-no-files-found: warn

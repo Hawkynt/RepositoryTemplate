@@ -3,6 +3,18 @@
 > Commits one generated file onto a long-lived branch with a GitHub-signed commit and keeps exactly
 > one pull request open for it — without starting a loop.
 
+## ⛔ Superseded by [`assert-generated-file`](../assert-generated-file/)
+
+Generated content is **checked on a pull request**, not published after one. Use this only where
+that genuinely cannot work.
+
+The reason is a measured one. A pull request opened with `GITHUB_TOKEN` gets no checks, because
+nothing done with that token triggers a workflow — so it can never satisfy a required-checks rule
+without a personal access token. And the pull request it opens trails the change that caused it:
+the screenshot arrives after the UI change that altered it, in a separate review. Checking instead
+lands the regenerated file in the same pull request as the change, needs no secret, and cannot loop.
+
+
 ```yaml
       - name: Publish it through a pull request
         uses: Hawkynt/RepositoryTemplate/publish-generated-file@v1
