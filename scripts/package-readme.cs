@@ -1651,6 +1651,13 @@ static class ReferenceDocument {
     if (repository.EndsWith(".git", StringComparison.OrdinalIgnoreCase))
       repository = repository[..^4];
 
+    // RepositoryUrl is often not the repository at all but a browse URL pointing into it —
+    // .../AnythingToGif/tree/master/GifFileFormat is what two repos here actually declare. Appending
+    // to that produces .../tree/master/GifFileFormat/blob/main/GifFileFormat/REFERENCE.md, which is
+    // nonsense that resolves nowhere. Everything from /tree/ or /blob/ onwards is a view of the
+    // repository rather than part of its address.
+    repository = Regex.Replace(repository, @"/(tree|blob|raw)/.*$", "", RegexOptions.IgnoreCase);
+
     repository = repository.TrimEnd('/');
     if (!repository.StartsWith("http", StringComparison.OrdinalIgnoreCase))
       return null;
@@ -1994,6 +2001,12 @@ static class SelfTest {
     Check("reference-url/space-escaped",
       "https://github.com/Hawkynt/Example/blob/main/My%20Lib/REFERENCE.md",
       ReferenceDocument.Url(WithRepository("https://github.com/Hawkynt/Example"), "My Lib/REFERENCE.md")!);
+    Check("reference-url/tree-suffix-stripped",
+      "https://github.com/Hawkynt/Example/blob/main/Lib/REFERENCE.md",
+      ReferenceDocument.Url(WithRepository("https://github.com/Hawkynt/Example/tree/master/Lib"), "Lib/REFERENCE.md")!);
+    Check("reference-url/blob-suffix-stripped",
+      "https://github.com/Hawkynt/Example/blob/main/REFERENCE.md",
+      ReferenceDocument.Url(WithRepository("https://github.com/Hawkynt/Example/blob/main/README.md"), "REFERENCE.md")!);
     CheckTrue("reference-url/absent-repository-is-null",
       ReferenceDocument.Url(WithRepository(""), "REFERENCE.md") == null);
 
