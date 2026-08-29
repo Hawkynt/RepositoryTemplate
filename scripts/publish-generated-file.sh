@@ -46,12 +46,20 @@ gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/heads/$BRANCH" -f sha="$base"
 # replace rather than create. Legitimately empty when the file is not committed yet.
 blob=$(gh api "repos/$GITHUB_REPOSITORY/contents/$FILE?ref=$BRANCH" --jq '.sha' 2>/dev/null || true)
 
+# The encoded file arrives on stdin, not in the argument list. `-f content="$(base64 …)"` put the
+# whole payload into argv, and Windows caps a command line at about 32K — so every file big enough
+# to be worth generating died with "gh: Argument list too long" before the API was ever called. A
+# 300K screenshot needs 400K of base64; there is no argument list that holds it.
+#
+# @- is read verbatim as a string: the magic type conversion -F does on literals is not applied to
+# a value that came from a file, so a payload cannot be mistaken for a number or a boolean.
 args=(-X PUT "repos/$GITHUB_REPOSITORY/contents/$FILE"
-      -f message="$MESSAGE" -f branch="$BRANCH" -f content="$(base64 -w0 "$FILE")")
+      -f message="$MESSAGE" -f branch="$BRANCH" -F content=@-)
 if [ -n "$blob" ]; then
   args+=(-f sha="$blob")
 fi
-gh api "${args[@]}" --jq '"committed \(.commit.sha[0:8]) to '"$BRANCH"', verified=\(.commit.verification.verified)"'
+base64 -w0 "$FILE" \
+  | gh api "${args[@]}" --jq '"committed \(.commit.sha[0:8]) to '"$BRANCH"', verified=\(.commit.verification.verified)"'
 
 if [ -n "$(gh pr list --head "$BRANCH" --state open --json number --jq '.[].number')" ]; then
   echo "::notice::refreshed the open pull request for $BRANCH"
