@@ -153,20 +153,22 @@ jobs:
         working-directory: ${{ inputs.working-directory }}
         run: dotnet build ${{ inputs.solution }} --configuration Release --no-restore ${{ inputs.build-args }}
 
-      # Exactly one runner does this. The reference is committed, so it must not depend on which
-      # machine produced it.
-      - name: Check package READMEs
-        if: ${{ inputs.package-readme && (inputs.os-matrix == '' || matrix.os == (inputs.package-readme-os != '' && inputs.package-readme-os || fromJSON(inputs.os-matrix)[0])) }}
-        uses: Hawkynt/RepositoryTemplate/package-readme@v1
-        with:
-          root: ${{ inputs.package-readme-root != '' && inputs.package-readme-root || inputs.working-directory }}
-
       - name: Test
         working-directory: ${{ inputs.working-directory }}
         run: >
           dotnet test ${{ inputs.test-target != '' && inputs.test-target || inputs.solution }}
           --configuration Release --no-build ${{ inputs.build-args }} ${{ inputs.test-args }}
           --logger "trx;LogFileName=tests.trx"
+
+      # AFTER the tests, and it runs even when they fail. Ordered the other way it masks them
+      # completely: a stale README made this step red, the job stopped, no test ever ran, and the
+      # suite looked merely blocked — which is how 25 failing tests reached CompressionWorkbench's
+      # main. The tests are the primary signal and must always produce one.
+      - name: Check package READMEs
+        if: ${{ !cancelled() && inputs.package-readme && (inputs.os-matrix == '' || matrix.os == (inputs.package-readme-os != '' && inputs.package-readme-os || fromJSON(inputs.os-matrix)[0])) }}
+        uses: Hawkynt/RepositoryTemplate/package-readme@v1
+        with:
+          root: ${{ inputs.package-readme-root != '' && inputs.package-readme-root || inputs.working-directory }}
 
       - uses: actions/upload-artifact@v4
         if: always()
