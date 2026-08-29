@@ -161,7 +161,9 @@ jobs:
         env:
           CLONE_SIBLINGS: ${{ inputs.clone-siblings }}
         run: |
-          echo "$CLONE_SIBLINGS" | jq -r '.[] | "\(.repository)\t\(.path)"' |
+          # tr -d '\r': jq on the Windows runner ends its lines CRLF, and the carriage return
+          # became part of the path — "could not create work tree dir '.../CompressionWorkbench?'".
+          echo "$CLONE_SIBLINGS" | jq -r '.[] | "\(.repository)\t\(.path)"' | tr -d '\r' |
           while IFS=$'\t' read -r repository path; do
             [ -n "$repository" ] || continue
             echo "cloning $repository -> $path"
@@ -246,7 +248,9 @@ jobs:
         env:
           CLONE_SIBLINGS: ${{ inputs.clone-siblings }}
         run: |
-          echo "$CLONE_SIBLINGS" | jq -r '.[] | "\(.repository)\t\(.path)"' |
+          # tr -d '\r': jq on the Windows runner ends its lines CRLF, and the carriage return
+          # became part of the path — "could not create work tree dir '.../CompressionWorkbench?'".
+          echo "$CLONE_SIBLINGS" | jq -r '.[] | "\(.repository)\t\(.path)"' | tr -d '\r' |
           while IFS=$'\t' read -r repository path; do
             [ -n "$repository" ] || continue
             echo "cloning $repository -> $path"
