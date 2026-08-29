@@ -1,0 +1,155 @@
+name: Nightly publish
+
+# The tail of every repo's nightly: work out the marker, publish the release, prune the old ones.
+# Only the middle — turning a commit into artifacts — is repo-specific, so only that stays behind:
+#
+#     jobs:
+#       meta:
+#         uses: Hawkynt/RepositoryTemplate/.github/workflows/nightly-publish.yml@v1   # meta only
+#       build:
+#         needs: meta
+#         uses: ./.github/workflows/_build.yml
+#         with: { version: '${{ needs.meta.outputs.version }}', ... }
+#       publish:
+#         needs: [meta, build]
+#         uses: Hawkynt/RepositoryTemplate/.github/workflows/nightly-publish.yml@v1
+#         with:
+#           artifact: ${{ needs.build.outputs.exe-artifact }}
+#           tag: ${{ needs.meta.outputs.tag }}
+#           ...
+#
+# Called with no `artifact` it only computes the marker and returns it, which is the `meta` job.
+# Called with one it downloads that artifact and publishes.
+
+on:
+  workflow_call:
+    inputs:
+      artifact:
+        description: >-
+          Artifact to publish. Empty means "compute the marker and stop", which is how the meta job
+          uses this — the version has to be known before the build can be told what to stamp.
+        required: false
+        type: string
+        default: ''
+      files:
+        description: 'Glob of the downloaded files to attach to the release.'
+        required: false
+        type: string
+        default: 'dist/*'
+      tag:
+        description: 'Release tag. Required when publishing; the meta call computes it for you.'
+        required: false
+        type: string
+        default: ''
+      version:
+        description: 'Version shown in the release title.'
+        required: false
+        type: string
+        default: ''
+      date:
+        description: 'Date shown in the release title.'
+        required: false
+        type: string
+        default: ''
+      sha:
+        description: 'Commit to check out and tag. Defaults to the caller ref.'
+        required: false
+        type: string
+        default: ''
+      prune:
+        description: 'GFS-prune old nightlies afterwards: 7 daily, 4 weekly, 3 monthly.'
+        required: false
+        type: boolean
+        default: true
+    outputs:
+      date:
+        description: 'UTC yyyyMMdd.'
+        value: ${{ jobs.run.outputs.date }}
+      version:
+        description: 'The repo version, or empty where each package carries its own.'
+        value: ${{ jobs.run.outputs.version }}
+      tag:
+        description: 'nightly-yyyyMMdd.'
+        value: ${{ jobs.run.outputs.tag }}
+      sha:
+        description: 'The commit this refers to.'
+        value: ${{ jobs.run.outputs.sha }}
+
+permissions:
+  contents: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    outputs:
+      date: ${{ steps.marker.outputs.date }}
+      version: ${{ steps.marker.outputs.version }}
+      tag: ${{ steps.marker.outputs.tag }}
+      sha: ${{ steps.marker.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sha != '' && inputs.sha || github.sha }}
+          fetch-depth: 0                          # the version and changelog scripts read git log
+
+      # Print, not stamp: this only needs to know the number, and nothing here is built.
+      - name: Compute the version
+        id: v
+        uses: Hawkynt/RepositoryTemplate/stamp-version@v1
+        with:
+          mode: print
+
+      - name: Compute the marker
+        id: marker
+        shell: bash
+        run: |
+          date=$(date -u +%Y%m%d)
+          {
+            echo "date=$date"
+            echo "version=${{ steps.v.outputs.version }}"
+            echo "tag=nightly-$date"
+            echo "sha=${{ inputs.sha != '' && inputs.sha || github.sha }}"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: actions/download-artifact@v4
+        if: ${{ inputs.artifact != '' }}
+        with:
+          name: ${{ inputs.artifact }}
+          path: dist
+
+      - name: Generate release notes (commit-prefix changelog)
+        if: ${{ inputs.artifact != '' }}
+        uses: Hawkynt/RepositoryTemplate/release-notes@v1
+        with:
+          mode: nightly
+          notes: CHANGES.md
+
+      # Same-date reruns replace rather than accumulate: a nightly is the state of that day, and two
+      # of them is one too many.
+      - name: Publish the nightly
+        if: ${{ inputs.artifact != '' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag != '' && inputs.tag || steps.marker.outputs.tag }}
+          TITLE_DATE: ${{ inputs.date != '' && inputs.date || steps.marker.outputs.date }}
+          TITLE_VERSION: ${{ inputs.version != '' && inputs.version || steps.marker.outputs.version }}
+          FILES: ${{ inputs.files }}
+        run: |
+          if gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release delete "$TAG" -R "$GITHUB_REPOSITORY" --cleanup-tag --yes
+          fi
+          title="Nightly $TITLE_DATE"
+          [ -n "$TITLE_VERSION" ] && title="$title ($TITLE_VERSION)"
+          # shellcheck disable=SC2086
+          gh release create "$TAG" -R "$GITHUB_REPOSITORY" \
+            --title "$title" --prerelease --notes-file CHANGES.md \
+            --target "${{ inputs.sha != '' && inputs.sha || github.sha }}" \
+            $FILES
+
+      - name: Prune old nightlies
+        if: ${{ inputs.artifact != '' && inputs.prune }}
+        uses: Hawkynt/RepositoryTemplate/prune-nightlies@v1

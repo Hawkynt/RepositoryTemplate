@@ -25,6 +25,7 @@
 | `.github/FUNDING.yml` | Sponsors + PayPal button (pairs with the README `## ❤️ Support` section). |
 | `.github/workflows/` | `ci` · `_build` · `nightly` · `release` — thin, and they call the actions below. Plus `self-test`, which runs *here*. |
 | `.github/workflows/dotnet-ci.yml` | **Reusable workflow.** The whole standard CI gate; a repo's own `ci.yml` is a dozen lines calling it. |
+| `.github/workflows/nightly-publish.yml` | **Reusable workflow.** The marker, the release and the GFS prune; only the build stays per-repo. |
 | `scripts/` | `version.pl`, `update-changelog.mjs`, `prune-nightlies.mjs`, `package-readme.cs`, `commit-generated-file.sh`, `assert-generated-file.sh` — the single copy, used by the actions. |
 | `scripts/fixtures/` | The package-readme test fixture and its golden output. |
 | `nuget-publish/` | Composite action: Trusted Publishing push with an acceptance check. |
