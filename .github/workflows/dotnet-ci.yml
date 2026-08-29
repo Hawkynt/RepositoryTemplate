@@ -144,6 +144,7 @@ jobs:
         uses: Hawkynt/RepositoryTemplate/stamp-version@v1
         with:
           mode: stamp
+          path: ${{ inputs.working-directory }}
 
       - name: Restore
         working-directory: ${{ inputs.working-directory }}
@@ -203,6 +204,7 @@ jobs:
         uses: Hawkynt/RepositoryTemplate/stamp-version@v1
         with:
           mode: stamp
+          path: ${{ inputs.working-directory }}
 
       - name: Test with coverage
         working-directory: ${{ inputs.working-directory }}

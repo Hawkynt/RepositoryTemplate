@@ -5,6 +5,12 @@ description: >-
   PHP, Perl, Rust, C++ (CMake), QuickBASIC and a root VERSION file.
 
 inputs:
+  path:
+    description: >-
+      Directory to run in. Only needed when the repository is checked out beside a sibling rather
+      than at the workspace root — the scripts count commits, so they must run inside the repo.
+    required: false
+    default: '.'
   mode:
     description: >-
       `stamp` rewrites every manifest in place (the default; what a build wants). `print` computes
@@ -26,6 +32,7 @@ runs:
     # yields 1 for everything. Fail loudly instead of stamping every package with a wrong number.
     - name: Verify full history
       shell: bash
+      working-directory: ${{ inputs.path }}
       run: |
         if [ "$(git rev-parse --is-shallow-repository 2>/dev/null)" = "true" ]; then
           echo "::error::Shallow checkout — version.pl counts commits. Use actions/checkout with fetch-depth: 0."
@@ -35,6 +42,7 @@ runs:
     - name: Stamp / compute versions
       id: run
       shell: bash
+      working-directory: ${{ inputs.path }}
       run: |
         SCRIPT="${{ github.action_path }}/../scripts/version.pl"
         case "${{ inputs.mode }}" in
