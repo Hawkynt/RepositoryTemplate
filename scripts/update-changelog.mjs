@@ -20,6 +20,7 @@
 import fs   from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 
 // The repo root is derived from the WORKING DIRECTORY, never from this file's location. When the
 // shared actions run, the script is checked out under the runner's _actions directory, nowhere near
@@ -223,6 +224,6 @@ function main() {
 
 // pathToFileURL handles Windows separators AND percent-encodes blanks, so the
 // comparison also holds for working copies living in paths with spaces.
-if (process.argv[1] && import.meta.url === url.pathToFileURL(process.argv[1]).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
     main();
 }
