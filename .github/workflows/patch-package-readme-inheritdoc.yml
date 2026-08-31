@@ -1,0 +1,43 @@
+name: Patch package-readme inheritdoc
+
+on:
+  push:
+    branches: [fix/package-readme-inheritdoc]
+
+permissions:
+  contents: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Apply focused source and fixture changes
+        run: python3 .github/patch-package-readme-inheritdoc.py
+
+      - name: Run package-readme self-test
+        run: dotnet run scripts/package-readme.cs -- --self-test
+
+      - name: Check diff
+        run: git diff --check
+
+      - name: Commit implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name Hawkynt
+          git config user.email github@synthelicz.de
+          git add scripts/package-readme.cs scripts/fixtures/Fixture.Package/Api.cs scripts/fixtures/EXPECTED.md
+          git commit -m '# resolve explicit inheritdoc references' || exit 0
+          git push
