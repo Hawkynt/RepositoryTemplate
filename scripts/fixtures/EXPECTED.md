@@ -1,6 +1,6 @@
 ### Namespace `Fixture.Package`
 
-[`BitOrder`](#bitorder) · [`BitWriter`](#bitwriter) · [`Cache<TKey, TValue>`](#cachetkey-tvalue) · [`Cache<TKey, TValue>.Entry`](#cachetkey-tvalueentry) · [`Empty`](#empty) · [`Fraction`](#fraction) · [`Helpers`](#helpers) · [`INamed`](#inamed) · [`Location`](#location) · [`MostlyHidden`](#mostlyhidden) · [`NamedThing`](#namedthing) · [`Predicate<T>`](#predicatet) · [`Undocumented`](#undocumented)
+[`BitOrder`](#bitorder) · [`BitWriter`](#bitwriter) · [`Cache<TKey, TValue>`](#cachetkey-tvalue) · [`Cache<TKey, TValue>.Entry`](#cachetkey-tvalueentry) · [`Empty`](#empty) · [`Fraction`](#fraction) · [`Helpers`](#helpers) · [`INamed`](#inamed) · [`Location`](#location) · [`MostlyHidden`](#mostlyhidden) · [`NamedThing`](#namedthing) · [`Predicate<T>`](#predicatet) · [`StaticExtensionFixture`](#staticextensionfixture) · [`Undocumented`](#undocumented)
 
 #### `BitOrder`
 
@@ -140,6 +140,14 @@ Covers the delegate path.
 | Member | Signature | Summary |
 | --- | --- | --- |
 | `Predicate` | `bool Predicate<T>(T candidate)` | Covers the delegate path. |
+
+#### `StaticExtensionFixture`
+
+Covers C# 14 extension-member metadata.
+
+| Member | Signature | Summary |
+| --- | --- | --- |
+| `get_SupportedBits` | `static int get_SupportedBits()` | Gets the bit width of the extended integer type. |
 
 #### `Undocumented`
 

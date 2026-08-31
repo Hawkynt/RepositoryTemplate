@@ -1314,7 +1314,8 @@ static class Signatures {
 record DocEntry(string Summary, string? Example);
 
 sealed class XmlDocs {
-  readonly Dictionary<string, DocEntry> _entries = new(StringComparer.Ordinal);
+  readonly Dictionary<string, XElement> _members = new(StringComparer.Ordinal);
+  readonly Dictionary<string, DocEntry> _resolved = new(StringComparer.Ordinal);
 
   public static XmlDocs Load(string? path) {
     var docs = new XmlDocs();
@@ -1333,15 +1334,45 @@ sealed class XmlDocs {
       if (string.IsNullOrEmpty(name))
         continue;
 
-      var summary = Flatten(member.Element("summary"));
-      var example = CodeOf(member.Element("example"));
-      docs._entries[name] = new DocEntry(summary, example);
+      docs._members[name] = new XElement(member);
     }
 
     return docs;
   }
 
-  public DocEntry? Get(string docId) => _entries.GetValueOrDefault(docId);
+  public DocEntry? Get(string docId) => Resolve(docId, []);
+
+  DocEntry? Resolve(string docId, HashSet<string> resolving) {
+    if (_resolved.TryGetValue(docId, out var cached))
+      return cached;
+
+    if (!_members.TryGetValue(docId, out var member))
+      return null;
+
+    // C# 14 extension-member implementation methods deliberately carry an <inheritdoc cref="..."/>
+    // to the metadata extension member instead of duplicating its documentation. Following the cref is
+    // required by the language specification and also makes ordinary explicit-cref inheritdoc useful.
+    if (!resolving.Add(docId))
+      return new DocEntry("", null);
+
+    var summary = Flatten(member.Element("summary"));
+    var example = CodeOf(member.Element("example"));
+    var inheritdoc = member.Element("inheritdoc");
+    var cref = inheritdoc?.Attribute("cref")?.Value;
+    if (!string.IsNullOrEmpty(cref)) {
+      var inherited = Resolve(cref, resolving);
+      if (inherited != null) {
+        if (string.IsNullOrEmpty(summary))
+          summary = inherited.Summary;
+        example ??= inherited.Example;
+      }
+    }
+
+    resolving.Remove(docId);
+    var result = new DocEntry(summary, example);
+    _resolved[docId] = result;
+    return result;
+  }
 
   /// <summary>Collapses inline doc markup to one table-safe line.</summary>
   public static string Flatten(XElement? element) {
