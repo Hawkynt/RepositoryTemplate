@@ -142,6 +142,14 @@ public static class Helpers {
   public static int Doubled(this int value) => value * 2;
 }
 
+/// <summary>Covers C# 14 extension-member metadata.</summary>
+public static class StaticExtensionFixture {
+  extension(int) {
+    /// <summary>Gets the bit width of the extended integer type.</summary>
+    public static int SupportedBits => 32;
+  }
+}
+
 /// <summary>Covers the record path.</summary>
 /// <param name="Path">Where the thing lives.</param>
 public sealed record Location(string Path);
