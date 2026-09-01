@@ -39,6 +39,38 @@ committing large binary fixtures.
   qualification, XML docs on public members, LF endings.
 - `Nullable` and `ImplicitUsings` are enabled centrally in `Directory.Build.props`.
 
+## GUI screenshots
+
+GUI applications treat screenshots as generated product documentation. The README/docs should show
+**all primary dialogs and top-level windows that represent distinct workflows**, not just whatever
+window appears at startup. Typical candidates are the main window, settings/preferences,
+import/open/add flows, editors/configuration dialogs, export/save/publish flows, previews/results,
+reports, and substantial wizards. Do not multiply screenshots for trivial confirmation boxes or
+visually identical variants.
+
+Each documented surface needs an application-owned demo scenario. Prefer a hidden/documentation-only
+startup option such as `--screenshot-demo=<scenario>:<output>` or an equivalent internal entry point
+that opens the real UI in a deterministic state and writes the image without operator interaction.
+The exact mechanism is project-specific; these properties are not:
+
+- Build the scenario from the application's real domain models, presenters/view-models and controls.
+  Do not draw fake table rows over the UI, stitch screenshots, or maintain a parallel mock screen.
+- Populate enough plausible data to make the screenshot useful: multiple representative items,
+  meaningful names and values, different statuses, optional fields, edits/warnings where relevant,
+  and edge cases worth seeing. An empty dialog is technically reproducible and practically useless.
+- Keep it deterministic and private: fixed values/seeds/timestamps, no personal data, no live network
+  or cloud dependency, and no dependency on locally installed third-party tools when equivalent
+  in-memory/pre-parsed data can drive the same production UI.
+- Make scenarios independently addressable so CI can capture each primary dialog/window directly.
+  Adding a new primary surface means adding its scenario and screenshot in the same change.
+- Store generated images under a descriptive path such as `screenshots/` or `docs/screenshots/`, use
+  descriptive kebab-case filenames, reference them from README/docs with useful alt text, and keep
+  the surrounding text authoritative — screenshots complement documentation rather than replacing it.
+
+`generate.yml` should regenerate every committed screenshot on a working-branch push and commit the
+changed files through `Hawkynt/RepositoryTemplate/commit-generated-file@v1`. The generation job should
+also sanity-check that each expected image exists and is a plausible image before committing it.
+
 ## Continuous integration
 
 Workflows live in `.github/workflows/`:
