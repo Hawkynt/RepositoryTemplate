@@ -119,6 +119,25 @@ on:
         required: false
         type: string
         default: ''
+      timeout-minutes:
+        description: >-
+          Cap for each test job. Without one a job inherits GitHub's six-hour default, so anything
+          wedged — a hung mount, a deadlocked pump, a UI waiting on a window that never opens —
+          holds a runner for six hours and queues every other job behind it. Size it at roughly
+          twice the observed successful run, not at what feels safe.
+        required: false
+        type: number
+        default: 60
+      coverage-timeout-minutes:
+        description: >-
+          Cap for the coverage job, which is normally several times the test job because
+          instrumentation is. If this number has to be large, that is the signal to set
+          `coverage: false` here and measure on a schedule instead: coverage is a reporting metric,
+          and one that cannot finish before the next push supersedes it reports nothing while
+          blocking everything.
+        required: false
+        type: number
+        default: 120
 
 # A newer run for the same pull request supersedes the older one. Three pushes in a row used to
 # queue three full matrices and run all of them.
@@ -137,6 +156,7 @@ jobs:
       matrix:
         os: ${{ fromJSON(inputs.os-matrix != '' && inputs.os-matrix || format('["{0}"]', inputs.runs-on)) }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -226,6 +246,7 @@ jobs:
   coverage:
     if: ${{ inputs.coverage }}
     runs-on: ${{ inputs.os-matrix != '' && fromJSON(inputs.os-matrix)[0] || inputs.runs-on }}
+    timeout-minutes: ${{ inputs.coverage-timeout-minutes }}
     steps:
       - uses: actions/checkout@v4
         with:

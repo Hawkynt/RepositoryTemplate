@@ -28,13 +28,30 @@ in the commit body.
 
 1. **Before committing**: `dotnet build ProjectName.sln -c Release` and
    `dotnet test ProjectName.sln -c Release` until green (CI runs the same on ubuntu + windows). New
-   behaviour is test-first (TDD): add the failing test, then make it pass.
+   behaviour is test-first (TDD): add the failing test, then make it pass. While iterating,
+   `--filter "Category!=Slow"` is the fast tier; run the whole suite before you push.
 2. **Commit** (rules above) and **push**.
 3. **Wait for CI**; on `main` a green CI triggers the nightly (dated prerelease + GFS prune). Fix and
    loop until everything is green.
 
 Stable releases are **manual** (`gh workflow run release.yml`) — never cut one unless explicitly
 asked.
+
+## Tests come in two tiers
+
+A test is in the **fast tier** unless it says otherwise — that direction, never the other, because
+the fast test somebody forgets to tag would drop out silently. A test opts out with `Slow` (quick in
+kind, expensive in practice) or with one of the tiers that are slow by nature: `EndToEnd`,
+`OsIntegration`, `ExternalInterop`, `PolyglotInterop`, `Performance`.
+
+Opting out **defers** a test; it never skips one. The pull request runs everything.
+
+- A fast-tier test finishes in well under a second. If yours does not, make it so or tag it `Slow`.
+- A test that reads a RATE — CPU against wall-clock, allocations per operation — needs a sustained
+  window, and should run to a *duration* rather than a fixed iteration count so the window holds on
+  a fast machine and a slow one alike. Over 90 ms you are measuring thread start-up and tiered JIT.
+- **Changing a test filter means checking every category still has a step that runs it.** A category
+  excluded from the main filter with no step of its own executes nowhere, and nothing reports that.
 
 ## Code conventions
 

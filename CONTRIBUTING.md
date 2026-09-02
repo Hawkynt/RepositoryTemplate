@@ -19,12 +19,47 @@ dotnet build ProjectName.sln -c Release --no-restore
 ## Test
 
 ```bash
-dotnet test ProjectName.sln -c Release
+dotnet test ProjectName.sln -c Release                                   # everything
+dotnet test ProjectName.sln -c Release --filter "Category!=Slow"         # the fast tier
 ```
 
 Tests are [NUnit](https://nunit.org). New behaviour is test-first: add the failing test, then make it
 pass. Keep test data deterministic (fixed seeds/strings) and generate it in setup rather than
 committing large binary fixtures.
+
+### The two tiers
+
+A test belongs to the **fast tier** unless it says otherwise. That direction is deliberate: marking
+every fast test would mean tagging thousands of them and remembering to tag each new one, and the
+one somebody forgets silently drops out of the fast tier without anybody noticing. Opting out is a
+decision somebody makes once, in the open.
+
+A test opts out by carrying one of these categories:
+
+| Category | For |
+|---|---|
+| `Slow` | Quick in kind, expensive in practice — a large fixture, a long deadline, a wall-clock wait. The general escape hatch. |
+| `EndToEnd` | Drives the built artifact, a mount, or a real external tool end to end. |
+| `OsIntegration` | Needs something of the host: a driver, a service, elevated rights, a display. |
+| `ExternalInterop` | Checks our output against a third-party tool (7-Zip, zstd, flac …). |
+| `PolyglotInterop` | Round-trips through another language ecosystem. |
+| `Performance` | Asserts on wall-clock or throughput. Advisory: a shared runner must never turn a timing assertion into a red pull request. |
+
+**Opting out defers a test, it never skips one.** Everything runs on the pull request. The tiers
+decide *when*, not *whether*.
+
+Two rules that make the difference real:
+
+- **A test in the fast tier finishes in well under a second.** If it does not, either make it so or
+  tag it `Slow`. A fast tier that creeps up to twenty minutes stops being read, and then people
+  open pull requests to find out whether their code compiles — which runs the expensive tier ten
+  times per change instead of once.
+- **Measure over a window long enough to mean something.** A test that divides CPU time by
+  wall-clock, counts allocations per operation, or reads any other rate needs a sustained sample.
+  Over 90 ms the reading is thread start-up and tiered JIT, not the thing being measured; that is
+  how a four-core runner once reported 6.2 cores busy. Run such a test to a *duration*, not to a
+  fixed iteration count, so the window holds on a fast machine and a slow one alike — and tag it
+  `Slow`, because now it is.
 
 ## Commit conventions
 
@@ -77,10 +112,50 @@ Workflows live in `.github/workflows/`:
 
 | Workflow | Trigger | Purpose |
 |---|---|---|
-| `ci.yml` | push / PR to `main` | Cross-platform (Ubuntu + Windows) build and test. |
+| `smoke.yml` | push to a working branch | The fast tier. One OS, fast tests only, no coverage, no package-README check. Minutes. |
+| `generate.yml` | push to a working branch | Refreshes derived files (screenshots, references) and commits them onto the branch. |
+| `ci.yml` | PR to `main` | The gate. Every OS, every category, coverage. |
 | `_build.yml` | called by release/nightly | Shared build/pack step so both paths produce identical artifacts. |
 | `nightly.yml` | automatically after green CI on `main` | Dated `nightly-YYYYMMDD` prerelease, GFS-pruned. |
 | `release.yml` | manual dispatch | Cuts a dated `vYYYYMMDD` release; publishes NuGet packages when configured. |
+
+### Fast on push, comprehensive on the pull request
+
+```
+push to a working branch  ->  smoke.yml + generate.yml     fast, one OS, derived files refreshed
+pull request              ->  ci.yml                       the gate: every OS, every category
+push to main              ->  nothing                      the pull request was already green
+```
+
+Both branch-push workflows call shared reusable workflows, so a repo declares intent rather than
+copying a matrix:
+
+```yaml
+# .github/workflows/smoke.yml
+jobs:
+  smoke:
+    uses: Hawkynt/RepositoryTemplate/.github/workflows/dotnet-smoke.yml@v1
+    with:
+      solution: ProjectName.sln
+```
+
+Three properties of this split are not negotiable:
+
+- **Every job declares `timeout-minutes`.** Without one a job inherits GitHub's six-hour default, so
+  anything wedged — a hung mount, a deadlocked pump, a UI waiting on a window that never opens —
+  holds a runner for six hours and queues every other job behind it. Size it at roughly twice the
+  observed successful run. The shared workflows take `timeout-minutes` and
+  `coverage-timeout-minutes` inputs and default to 60 and 120.
+- **Coverage is a reporting metric, not a gate.** Instrumentation costs several times the test run.
+  Once it exceeds what a pull request can wait for, set `coverage: false` on the shared workflow and
+  measure on a schedule instead, in a workflow that is *not* `cancel-in-progress` so it can actually
+  finish. Coverage that never completes before the next push supersedes it reports nothing while
+  blocking everything — that is not a stricter gate, it is an unread one.
+- **Every category has somewhere it runs.** A category excluded from the main filter needs its own
+  step, or its tests execute nowhere. This is easy to get wrong by omission and invisible when you
+  do: one repo excluded `ExternalInterop` from the core filter and never added the step, so 17 files
+  and ~167 cases — the ones checking our output against real 7-Zip, zstd and flac — never ran on any
+  runner. After changing a filter, list the categories and confirm each appears in some step.
 
 Versions come from files, not git tags: the shared `stamp-version` action stamps each manifest with
 its own folder's commit count, so sibling packages version independently, while the repo-level marker

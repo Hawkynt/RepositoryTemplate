@@ -1,0 +1,179 @@
+name: .NET smoke
+
+# The FAST tier. Every generated repo calls this from a working-branch push:
+#
+#     jobs:
+#       smoke:
+#         uses: Hawkynt/RepositoryTemplate/.github/workflows/dotnet-smoke.yml@v1
+#         with:
+#           solution: MyThing.sln
+#
+# The split it belongs to:
+#
+#   push to a working branch  -> generate.yml (derived files) + this. One OS, no coverage, no
+#                                package-README check, and only the tests that are quick. Minutes.
+#   pull request              -> dotnet-ci.yml. Every OS, every category, coverage. The gate.
+#   push to main              -> nothing. The pull request was already green.
+#
+# The point is the feedback loop while a change is being written. A push that takes forty minutes
+# to tell you a name is misspelled is a push nobody waits for, so people stop reading CI and start
+# opening pull requests to find out whether their code compiles — which is how the expensive tier
+# ends up running ten times per change instead of once.
+#
+# WHAT COUNTS AS QUICK is defined by exclusion, because the opposite does not scale: marking every
+# fast test would mean touching thousands of them and remembering to mark each new one, and the one
+# somebody forgets silently drops out of the fast tier. So a test is in the fast tier unless it says
+# otherwise. See `test-args` for the categories that opt out.
+
+on:
+  workflow_call:
+    inputs:
+      solution:
+        description: 'Solution or project to restore, build and test. The one required input.'
+        required: true
+        type: string
+      dotnet-version:
+        description: 'SDK channel(s) for setup-dotnet. Multi-line for several.'
+        required: false
+        type: string
+        default: '8.x'
+      runs-on:
+        description: 'The single runner this tier uses. One OS on purpose — the matrix is the pull request''s job.'
+        required: false
+        type: string
+        default: 'ubuntu-latest'
+      build-args:
+        description: 'Extra arguments for restore and build, e.g. -p:DisableILRepack=true.'
+        required: false
+        type: string
+        default: ''
+      test-target:
+        description: 'What to test. Defaults to the solution.'
+        required: false
+        type: string
+        default: ''
+      test-args:
+        description: >-
+          The fast-tier filter. The default excludes the categories that are slow by nature, plus
+          `Slow` itself — the opt-in marker for a test that is quick in kind but expensive in
+          practice (a big fixture, a long deadline, a wall-clock wait). Tag one and it leaves this
+          tier while staying in the pull-request tier, which is the whole point: nothing is skipped,
+          it is only deferred. Override this if the repo names its tiers differently.
+        required: false
+        type: string
+        default: >-
+          --filter "Category!=Slow&Category!=EndToEnd&Category!=OsIntegration&Category!=ExternalInterop&Category!=PolyglotInterop&Category!=Performance"
+      timeout-minutes:
+        description: 'Cap for the job. A fast tier that runs for an hour is not a fast tier.'
+        required: false
+        type: number
+        default: 20
+      working-directory:
+        description: 'Directory the dotnet commands run in. For a repo checked out beside a sibling.'
+        required: false
+        type: string
+        default: '.'
+      checkout-path:
+        description: 'Where to check this repo out. Set it only when a sibling has to sit next to it.'
+        required: false
+        type: string
+        default: ''
+      siblings:
+        description: >-
+          JSON array of sibling repositories a cross-workspace ProjectReference needs, e.g.
+          '[{"repository":"Hawkynt/C--FrameworkExtensions","path":"C--FrameworkExtensions"}]'.
+        required: false
+        type: string
+        default: '[]'
+      clone-siblings:
+        description: >-
+          JSON array of siblings to git-clone, e.g.
+          '[{"repository":"Hawkynt/CompressionWorkbench","path":"../CompressionWorkbench"}]'.
+        required: false
+        type: string
+        default: '[]'
+      stamp-version:
+        description: 'Stamp each package version from files before building.'
+        required: false
+        type: boolean
+        default: true
+
+# A newer push to the same branch supersedes the older one. This tier exists to answer the question
+# "is the thing I just pushed broken", and only the newest push is still that question.
+concurrency:
+  group: smoke-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  smoke:
+    name: smoke
+    runs-on: ${{ inputs.runs-on }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: ${{ inputs.checkout-path }}
+          fetch-depth: 0                          # the version scripts count commits
+
+      - name: Check out siblings
+        if: ${{ inputs.siblings != '[]' }}
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ fromJSON(inputs.siblings)[0].repository }}
+          path: ${{ fromJSON(inputs.siblings)[0].path }}
+          fetch-depth: 1
+
+      # Outside the workspace, so actions/checkout cannot do it. Shallow: nothing here needs history.
+      - name: Clone siblings
+        if: ${{ inputs.clone-siblings != '[]' }}
+        shell: bash
+        env:
+          CLONE_SIBLINGS: ${{ inputs.clone-siblings }}
+        run: |
+          # tr -d '\r': jq on the Windows runner ends its lines CRLF, and the carriage return
+          # became part of the path — "could not create work tree dir '.../CompressionWorkbench?'".
+          echo "$CLONE_SIBLINGS" | jq -r '.[] | "\(.repository)\t\(.path)"' | tr -d '\r' |
+          while IFS=$'\t' read -r repository path; do
+            [ -n "$repository" ] || continue
+            echo "cloning $repository -> $path"
+            git clone --depth 1 "https://github.com/$repository.git" "$GITHUB_WORKSPACE/$path"
+          done
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ inputs.dotnet-version }}
+
+      - name: Stamp versions
+        if: ${{ inputs.stamp-version }}
+        uses: Hawkynt/RepositoryTemplate/stamp-version@v1
+        with:
+          mode: stamp
+          path: ${{ inputs.working-directory }}
+
+      - name: Restore
+        working-directory: ${{ inputs.working-directory }}
+        run: dotnet restore ${{ inputs.solution }} ${{ inputs.build-args }}
+
+      - name: Build
+        working-directory: ${{ inputs.working-directory }}
+        run: dotnet build ${{ inputs.solution }} --configuration Release --no-restore ${{ inputs.build-args }}
+
+      - name: Test (fast tier)
+        working-directory: ${{ inputs.working-directory }}
+        run: >
+          dotnet test ${{ inputs.test-target != '' && inputs.test-target || inputs.solution }}
+          --configuration Release --no-build ${{ inputs.build-args }} ${{ inputs.test-args }}
+          --logger "trx;LogFileName=smoke-tests.trx"
+
+      # No package-README check and no coverage here on purpose. Both belong to the pull request:
+      # one is a publishing concern, the other is a reporting metric, and neither tells the author
+      # of a work-in-progress push anything they need in the next minute.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoke-test-results
+          path: '**/TestResults/*.trx'
+          if-no-files-found: ignore
