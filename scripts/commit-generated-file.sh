@@ -13,8 +13,11 @@
 #      runner is unsigned, and required_signatures is evaluated over a pull request's COMMITS — a
 #      squash merge does not launder it — so an unsigned commit here would make the branch
 #      unmergeable later. Measured, not assumed.
-#   2. Nothing done with GITHUB_TOKEN triggers a workflow, so this commit cannot start another run.
-#      There is no loop to fence off; it is impossible by construction.
+#   2. A GITHUB_TOKEN commit cannot recursively trigger another push workflow, so generation cannot
+#      loop. On a branch that already belongs to an open pull request GitHub can still create a
+#      pull_request/synchronize run in action_required state for this bot commit. Repositories whose
+#      required checks must follow the generated head can explicitly workflow_dispatch their CI
+#      after this action; that dispatch does not require a PAT or separate GitHub App secret.
 #   3. It refuses to touch the default branch. That branch takes changes through pull requests only,
 #      and this must never be the thing that discovers otherwise.
 #

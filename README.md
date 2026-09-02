@@ -61,6 +61,50 @@ generates about 973 KB across 382 types, and a README that size is not a README 
 it and the paragraphs a consumer needs first are buried under four hundred types. The pointer is an
 absolute URL, because a package README renders on nuget.org where a relative link resolves nowhere.
 
+## 🖼️ GUI screenshots
+
+A GUI repository does **not** satisfy its documentation obligation with one startup-window picture.
+The README/docs must show the application's primary user-facing surfaces: every main top-level
+window or dialog that represents a distinct workflow or substantial state should have its own
+committed screenshot. That normally includes the main window and, where the application has them,
+settings/preferences, import/open/add flows, editors/configuration dialogs, export/save/publish
+flows, previews/results/reports, substantial wizards, and other first-class work surfaces. Trivial
+message boxes, confirmation prompts, and visually duplicate variants are not separate documentation
+surfaces.
+
+The screenshots are generated product documentation, not manually staged marketing art. **The
+application itself must provide deterministic demo scenarios for them.** A documentation-only
+command-line mode, internal entry point, or equivalent mechanism should be able to open each target
+surface with plausible demo data and capture the real production UI without operator interaction.
+The exact command is project-specific; the requirements are not:
+
+- Reuse the production controls and the real presenter/view-model/domain objects. Do not paint fake
+  rows over a form, stitch images, or keep a second screenshot-only mock UI that can drift away from
+  the application.
+- Give the screenshot something worth looking at. Use representative, believable data: multiple
+  items/rows where appropriate, meaningful names and values, different statuses, optional fields,
+  pending edits, warnings, conversions, edge cases, or other states that demonstrate what the
+  surface actually does. An empty dialog is reproducible but useless.
+- Keep every scenario deterministic and safe for CI: fixed values/seeds/timestamps, no personal data,
+  no live network/cloud dependency, and no required third-party executable when equivalent
+  pre-parsed or in-memory data can drive the production UI.
+- Make the scenarios independently addressable so CI can capture every primary surface directly.
+  Adding or materially changing a primary dialog/window means adding or refreshing its demo scenario
+  and screenshot in the same pull request.
+- Keep images in a predictable location such as `screenshots/` or `docs/screenshots/`, use
+  descriptive kebab-case filenames, and reference them from README/docs with useful alt text. Text
+  remains authoritative; screenshots complement it rather than becoming the only documentation.
+
+GitHub's own documentation follows the same broad principle: screenshots should make UI easier to
+understand, use descriptive filenames, include enough surrounding context to orient the reader, and
+carry alt text. The house rule here is intentionally stronger for application repositories: primary
+product surfaces are part of the product documentation and are therefore expected to be shown.
+
+All of these screenshots belong in `generate.yml`. A working-branch push should build the app once,
+produce every expected screenshot, sanity-check the files, and commit each changed generated image
+through `commit-generated-file@v1`. Do not leave secondary dialogs as manually refreshed images just
+because the startup window already has automation.
+
 ## 🚦 When things run
 
 Four stages, each doing the cheapest thing that is still true. **A push to `main` is forbidden** —
@@ -82,8 +126,12 @@ Three properties make committing from a branch push safe, and all three are load
    runner is unsigned, and `required_signatures` is evaluated over a pull request's *commits* — a
    squash merge does not launder it — so an unsigned commit would make the branch unmergeable later.
    Measured with a probe, not assumed.
-2. **Nothing done with `GITHUB_TOKEN` triggers a workflow**, so that commit cannot start another
-   run. There is no loop to fence off; it is impossible by construction.
+2. **A `GITHUB_TOKEN` generated-file commit cannot recursively trigger another `push` workflow.**
+   There is therefore no generation loop. For a branch that already belongs to an open pull request,
+   GitHub can still emit a `pull_request/synchronize` run in `action_required` state for the bot
+   commit. If required checks must attach to that generated head, let `generate.yml` explicitly
+   `workflow_dispatch` the repo's `ci.yml` after the generated commit, as demonstrated by
+   `MassMediaEdit`; no PAT or separate GitHub App secret is required.
 3. **It refuses to touch the default branch.**
 
 Nothing runs on a push to `main` except the nightly. Re-running the battery on the merge commit
@@ -111,7 +159,8 @@ jobs:
       os-matrix: '["ubuntu-latest","windows-latest"]'
 ```
 
-and its `generate.yml` about the same:
+A GUI repo's `generate.yml` should generate the whole documented surface set, not a single ceremonial
+image. For example:
 
 ```yaml
 on:
@@ -119,18 +168,65 @@ on:
     branches-ignore: [main]
 
 permissions:
+  actions: write
   contents: write
+  pull-requests: read
 
 jobs:
-  screenshot:
+  screenshots:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      # ... whatever produces the file ...
+      # Build once, then use the application's own deterministic demo mode for every primary surface.
+      - run: dotnet build MyThing/MyThing.csproj -c Release
+      - run: |
+          ./MyThing/bin/Release/net10.0-windows/MyThing.exe --screenshot-demo=main:docs/screenshots/main-window.png
+          ./MyThing/bin/Release/net10.0-windows/MyThing.exe --screenshot-demo=settings:docs/screenshots/settings.png
+          ./MyThing/bin/Release/net10.0-windows/MyThing.exe --screenshot-demo=editor:docs/screenshots/editor.png
+      # Validate every expected image before committing any of them.
+      - name: Validate screenshots
+        shell: pwsh
+        run: |
+          @(
+            'docs/screenshots/main-window.png',
+            'docs/screenshots/settings.png',
+            'docs/screenshots/editor.png'
+          ) | ForEach-Object {
+            if (-not (Test-Path $_)) { throw "Missing generated screenshot: $_" }
+            if ((Get-Item $_).Length -lt 10000) { throw "Implausibly small screenshot: $_" }
+          }
+      # commit-generated-file handles one generated path per invocation; repeat it for the surface set.
       - uses: Hawkynt/RepositoryTemplate/commit-generated-file@v1
         with:
-          file: docs/screenshots/main.png
-          message: '* refresh the application screenshot'
+          file: docs/screenshots/main-window.png
+          message: '* refresh the main-window screenshot'
+      - uses: Hawkynt/RepositoryTemplate/commit-generated-file@v1
+        with:
+          file: docs/screenshots/settings.png
+          message: '* refresh the settings screenshot'
+      - uses: Hawkynt/RepositoryTemplate/commit-generated-file@v1
+        with:
+          file: docs/screenshots/editor.png
+          message: '* refresh the editor screenshot'
+      - name: Run CI on the generated head
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          branch="$GITHUB_REF_NAME"
+          generated_head=$(gh api "repos/$GITHUB_REPOSITORY/branches/$branch" --jq '.commit.sha')
+          if [ "$generated_head" = "$GITHUB_SHA" ]; then
+            exit 0
+          fi
+
+          owner="${GITHUB_REPOSITORY%%/*}"
+          open_prs=$(gh api --method GET "repos/$GITHUB_REPOSITORY/pulls" \
+            -f state=open -f head="$owner:$branch" --jq 'length')
+          if [ "$open_prs" -eq 0 ]; then
+            exit 0
+          fi
+
+          gh workflow run ci.yml --ref "$branch"
 ```
 
 Anything exotic — a filesystem driver, a GTK autopilot, an AOT publish — stays a job in the repo's
@@ -179,7 +275,10 @@ Then, in the new repo:
 2. Rewrite the README body (keep the frame) and the AGENTS "What this is" section.
 3. Point the workflows at the real solution and projects (they carry `ProjectName` placeholders and a
    guard so they no-op until then).
-4. Remove any part of the pipeline the project does not need (e.g. the NuGet publish step for a
+4. **For GUI applications, enumerate the primary dialogs/windows, add deterministic in-app demo
+   scenarios for each, reference their screenshots from the README/docs, and make `generate.yml`
+   regenerate the full set.** Do this while the UI is built, not as a later documentation cleanup.
+5. Remove any part of the pipeline the project does not need (e.g. the NuGet publish step for a
    binary-only app).
 
 ## 📦 `nuget-publish` action

@@ -53,6 +53,26 @@ asked.
 
 - Standard frame: title → grouped shields.io badges → one-line `>` blockquote → body →
   `## ❤️ Support` (Sponsors + PayPal, mirrors `.github/FUNDING.yml`) → `## 📜 License`.
+- **GUI repositories document the whole primary UI, not merely the startup window.** Every main
+  top-level window/dialog that represents a distinct user workflow or substantial state needs a
+  committed screenshot: the main window plus relevant settings/preferences, import/open/add,
+  editor/configuration, export/save/publish, preview/results/report, wizard, and comparable primary
+  surfaces. Tiny confirmations, trivial message boxes, and duplicate variants do not need their own
+  image.
+- GUI screenshots are **generated documentation**, never hand-maintained glamour shots. The
+  application itself must expose a documentation/demo mode that can populate each screenshot surface
+  with deterministic, plausible, visually useful demo data. Reuse the real production controls,
+  presenters/view-models, domain objects, formatting, and validation paths; do not paint fake rows or
+  maintain a second mock UI solely for screenshots.
+- Demo scenarios must be self-contained and reproducible in CI: fixed values, no personal/user data,
+  no network dependency, no clock/random dependence unless fixed, and no required external tools or
+  services when equivalent pre-parsed/in-memory data can exercise the real UI. Prefer representative
+  variety — multiple rows/items, meaningful labels, different statuses, optional fields, pending
+  changes, warnings, edge cases — so screenshots explain what the application can actually do.
+- `generate.yml` regenerates **all** committed GUI screenshots on working-branch pushes. Adding or
+  materially changing a primary dialog/window therefore includes its demo scenario, generated
+  screenshot, README/docs reference, and CI generation step in the same change. Use descriptive
+  filenames and useful alt text.
 - License is LGPL-3.0-or-later (full `LICENSE`); no per-file license headers in `.cs` files.
 - CI lives in `.github/workflows/{ci,_build,nightly,release}.yml` with the shared
   `scripts/{version.pl,update-changelog.mjs,prune-nightlies.mjs}`; all workflows set
