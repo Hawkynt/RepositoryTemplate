@@ -54,15 +54,21 @@ on:
         default: ''
       test-args:
         description: >-
-          The fast-tier filter. The default excludes the categories that are slow by nature, plus
-          `Slow` itself — the opt-in marker for a test that is quick in kind but expensive in
-          practice (a big fixture, a long deadline, a wall-clock wait). Tag one and it leaves this
-          tier while staying in the pull-request tier, which is the whole point: nothing is skipped,
-          it is only deferred. Override this if the repo names its tiers differently.
+          The fast-tier filter. It excludes the categories that are slow by nature, plus `Slow`
+          itself — the opt-in marker for a test that is quick in kind but expensive in practice (a
+          big fixture, a long deadline, a wall-clock wait). Tagging one takes it out of this tier
+          while it stays in the pull-request tier: nothing is skipped, only deferred. Override this
+          if the repo names its tiers differently.
+
+          Write `TestCategory!=`, NEVER `Category!=`. Both select the same tests and report the same
+          results, and only one of them skips anything: with `Category!=` the adapter filters the
+          REPORTING and still executes the excluded fixtures. Measured on a 5,489-test suite, same
+          assembly, same attributes — 5155 selected and 5143 passed either way, in 5m17s with
+          `Category!=` against 52s with `TestCategory!=`.
         required: false
         type: string
         default: >-
-          --filter "Category!=Slow&Category!=EndToEnd&Category!=OsIntegration&Category!=ExternalInterop&Category!=PolyglotInterop&Category!=Performance"
+          --filter "TestCategory!=Slow&TestCategory!=EndToEnd&TestCategory!=OsIntegration&TestCategory!=ExternalInterop&TestCategory!=PolyglotInterop&TestCategory!=Performance"
       timeout-minutes:
         description: 'Cap for the job. A fast tier that runs for an hour is not a fast tier.'
         required: false
