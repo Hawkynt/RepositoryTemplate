@@ -103,6 +103,15 @@ on:
         required: false
         type: boolean
         default: true
+      setup-command:
+        description: >-
+          A shell command run before restore, for system packages the build or the tests need — a
+          rendering stack, a codec, a driver. Empty runs nothing. Keep it to what the FAST tier
+          needs: anything only the slow categories require belongs in the pull-request job, since
+          this tier does not run them.
+        required: false
+        type: string
+        default: ''
 
 # A newer push to the same branch supersedes the older one. This tier exists to answer the question
 # "is the thing I just pushed broken", and only the newest push is still that question.
@@ -158,6 +167,11 @@ jobs:
         with:
           mode: stamp
           path: ${{ inputs.working-directory }}
+
+      - name: Setup
+        if: ${{ inputs.setup-command != '' }}
+        shell: bash
+        run: ${{ inputs.setup-command }}
 
       - name: Restore
         working-directory: ${{ inputs.working-directory }}
