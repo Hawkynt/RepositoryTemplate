@@ -1,6 +1,17 @@
 ### Namespace `Fixture.Package`
 
-[`BitOrder`](#bitorder) · [`BitWriter`](#bitwriter) · [`Cache<TKey, TValue>`](#cachetkey-tvalue) · [`Cache<TKey, TValue>.Entry`](#cachetkey-tvalueentry) · [`Empty`](#empty) · [`Fraction`](#fraction) · [`Helpers`](#helpers) · [`INamed`](#inamed) · [`Location`](#location) · [`MostlyHidden`](#mostlyhidden) · [`NamedThing`](#namedthing) · [`Predicate<T>`](#predicatet) · [`StaticExtensionFixture`](#staticextensionfixture) · [`Undocumented`](#undocumented)
+[`AliasCodec`](#aliascodec) · [`BitOrder`](#bitorder) · [`BitWriter`](#bitwriter) · [`BytewiseProbe`](#bytewiseprobe) · [`Cache<TKey, TValue>`](#cachetkey-tvalue) · [`Cache<TKey, TValue>.Entry`](#cachetkey-tvalueentry) · [`Codec`](#codec) · [`Empty`](#empty) · [`Flipped<TA, TB>`](#flippedta-tb) · [`Fraction`](#fraction) · [`Helpers`](#helpers) · [`INamed`](#inamed) · [`IPair<TFirst, TSecond>`](#ipairtfirst-tsecond) · [`IProbe`](#iprobe) · [`IStore<TItem>`](#istoretitem) · [`IntStore`](#intstore) · [`Location`](#location) · [`MostlyHidden`](#mostlyhidden) · [`NamedThing`](#namedthing) · [`NullCodec`](#nullcodec) · [`Predicate<T>`](#predicatet) · [`ProbeOutcome`](#probeoutcome) · [`StaticExtensionFixture`](#staticextensionfixture) · [`StringCache`](#stringcache) · [`Undocumented`](#undocumented)
+
+#### `AliasCodec`
+
+Covers documentation inherited from an abstract base class.
+
+Inherits `NullCodec`.
+
+| Member | Signature | Summary |
+| --- | --- | --- |
+| `AliasCodec` | `AliasCodec()` |  |
+| `Name` | `override string Name { get; }` | The name this codec is registered under. |
 
 #### `BitOrder`
 
@@ -34,6 +45,18 @@ writer.WriteBits(0b1011_0010, count: 8);
 writer.Flush();
 ```
 
+#### `BytewiseProbe`
+
+Covers documentation inherited from an interface.
+
+Implements `IProbe`.
+
+| Member | Signature | Summary |
+| --- | --- | --- |
+| `BytewiseProbe` | `BytewiseProbe()` |  |
+| `Matched` | `bool Matched { get; }` | Whether the last probe matched. |
+| `Probe` | `int Probe(byte[] data)` | Probes `data` and reports how many bytes were consumed. |
+
 #### `Cache<TKey, TValue>`
 
 A generic cache, covering generic type parameters and nested types.
@@ -64,6 +87,17 @@ Implements `IEquatable<Entry<TKey, TValue>>`.
 | `Key` | `TKey Key { get; init; }` |  |
 | `Value` | `TValue Value { get; init; }` |  |
 
+#### `Codec`
+
+Covers documentation inherited from an abstract base class.
+
+| Member | Signature | Summary |
+| --- | --- | --- |
+| `Codec` | `protected Codec()` |  |
+| `Name` | `abstract string Name { get; }` | The name this codec is registered under. |
+| `Encode` | `abstract int Encode(byte[] input, int offset)` | Encodes `input` and reports how many bytes were written. |
+| `OnFinished` | `protected virtual void OnFinished()` | Called once the codec has finished, whatever the outcome. |
+
 #### `Empty`
 
 Boundary case: a visible type with no public or protected members at all.
@@ -71,6 +105,17 @@ Boundary case: a visible type with no public or protected members at all.
 | Member | Signature | Summary |
 | --- | --- | --- |
 | `Empty` | `Empty()` |  |
+
+#### `Flipped<TA, TB>`
+
+Covers a generic interface whose parameters arrive in the other order.
+
+Implements `IPair<TB, TA>`.
+
+| Member | Signature | Summary |
+| --- | --- | --- |
+| `Flipped` | `Flipped()` |  |
+| `Swap` | `IPair<TA, TB> Swap(TB first, TA second)` | Returns the pair the other way round. |
 
 #### `Fraction`
 
@@ -101,6 +146,50 @@ Covers the interface rendering path.
 | --- | --- | --- |
 | `Name` | `string Name { get; }` | The display name. |
 | `Rename` | `void Rename(string name)` | Renames the instance. |
+
+#### `IPair<TFirst, TSecond>`
+
+Covers a generic interface whose parameters arrive in the other order.
+
+| Member | Signature | Summary |
+| --- | --- | --- |
+| `Swap` | `IPair<TSecond, TFirst> Swap(TFirst first, TSecond second)` | Returns the pair the other way round. |
+
+#### `IProbe`
+
+Covers documentation inherited from an interface.
+
+| Member | Signature | Summary |
+| --- | --- | --- |
+| `Matched` | `bool Matched { get; }` | Whether the last probe matched. |
+| `Probe` | `int Probe(byte[] data)` | Probes `data` and reports how many bytes were consumed. |
+
+#### `IStore<TItem>`
+
+Covers documentation inherited across a generic interface.
+
+| Member | Signature | Summary |
+| --- | --- | --- |
+| `Items` | `IReadOnlyList<TItem> Items { get; }` | Everything stored so far. |
+| `AddRange` | `void AddRange(TItem[] items)` | Stores many items at once. |
+| `Add` | `void Add(TItem item)` | Stores `item`. |
+| `Fold` | `TResult Fold<TResult>(Func<TItem, TResult, TResult> folder, TResult seed)` | Folds every stored item into one value. |
+| `TryTake` | `bool TryTake(out TItem item)` | Takes one item out, if there is one. |
+
+#### `IntStore`
+
+Covers documentation inherited across a generic interface.
+
+Implements `IStore<int>`.
+
+| Member | Signature | Summary |
+| --- | --- | --- |
+| `IntStore` | `IntStore()` |  |
+| `Items` | `IReadOnlyList<int> Items { get; }` | Everything stored so far. |
+| `AddRange` | `void AddRange(int[] items)` | Stores many items at once. |
+| `Add` | `void Add(int item)` | Stores `item`. |
+| `Fold` | `TResult Fold<TResult>(Func<int, TResult, TResult> folder, TResult seed)` | Folds every stored item into one value. |
+| `TryTake` | `bool TryTake(out int item)` | Takes one item out, if there is one. |
 
 #### `Location`
 
@@ -133,6 +222,19 @@ Implements `INamed`.
 | `NamedThing` | `NamedThing()` |  |
 | `Name` | `string Name { get; }` | The display name. |
 
+#### `NullCodec`
+
+Covers documentation inherited from an abstract base class.
+
+Inherits `Codec`.
+
+| Member | Signature | Summary |
+| --- | --- | --- |
+| `NullCodec` | `NullCodec()` |  |
+| `Name` | `override string Name { get; }` | The name this codec is registered under. |
+| `Encode` | `override int Encode(byte[] input, int offset)` | Encodes `input` and reports how many bytes were written. |
+| `OnFinished` | `protected override void OnFinished()` | Does nothing at all, and says so in its own words. |
+
 #### `Predicate<T>`
 
 Covers the delegate path.
@@ -141,6 +243,16 @@ Covers the delegate path.
 | --- | --- | --- |
 | `Predicate` | `bool Predicate<T>(T candidate)` | Covers the delegate path. |
 
+#### `ProbeOutcome`
+
+Covers bare inheritdoc on the one member kind that has nothing to inherit from.
+
+| Value | Numeric | Summary |
+| --- | --- | --- |
+| `Hit` | `0` | The probe found what it was looking for. |
+| `Miss` | `1` | The probe found nothing. Stated here, so the inheritdoc below must not overwrite it. |
+| `Inconclusive` | `2` |  |
+
 #### `StaticExtensionFixture`
 
 Covers C# 14 extension-member metadata.
@@ -148,6 +260,22 @@ Covers C# 14 extension-member metadata.
 | Member | Signature | Summary |
 | --- | --- | --- |
 | `get_SupportedBits` | `static int get_SupportedBits()` | Gets the bit width of the extended integer type. |
+
+#### `StringCache`
+
+A generic cache, covering generic type parameters and nested types.
+
+Inherits `Cache<string, int>`.
+
+| Member | Signature | Summary |
+| --- | --- | --- |
+| `StringCache` | `StringCache()` |  |
+| `OnEvicted` | `protected override void OnEvicted(string key)` | Covers the protected-member path — protected members are part of the public contract. |
+
+```csharp
+var cache = new Cache<string, int>();
+cache.Set("answer", 42);
+```
 
 #### `Undocumented`
 

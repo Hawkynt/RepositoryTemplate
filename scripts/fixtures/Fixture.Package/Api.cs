@@ -11,6 +11,23 @@ public enum BitOrder {
   LsbFirst = 1
 }
 
+/// <summary>Covers bare inheritdoc on the one member kind that has nothing to inherit from.</summary>
+public enum ProbeOutcome {
+
+  /// <summary>The probe found what it was looking for.</summary>
+  Hit = 0,
+
+  // An enum member overrides nothing and implements nothing, so a bare inheritdoc has no source and
+  // the cell stays empty. What must NOT happen is the resolution throwing, or blanking the summary
+  // the member states itself.
+  /// <summary>The probe found nothing. Stated here, so the inheritdoc below must not overwrite it.</summary>
+  /// <inheritdoc/>
+  Miss = 1,
+
+  /// <inheritdoc/>
+  Inconclusive = 2
+}
+
 /// <summary>Writes individual bits to a buffer.</summary>
 /// <example>
 /// <code>
@@ -133,6 +150,138 @@ public sealed class NamedThing : INamed {
   public string Name => "thing";
 
   void INamed.Rename(string name) { }
+}
+
+// =============================================================================
+//  Bare <inheritdoc/>
+// =============================================================================
+
+/// <summary>Covers documentation inherited from an interface.</summary>
+public interface IProbe {
+
+  /// <summary>Whether the last probe matched.</summary>
+  bool Matched { get; }
+
+  /// <summary>Probes <paramref name="data"/> and reports how many bytes were consumed.</summary>
+  int Probe(byte[] data);
+}
+
+/// <inheritdoc/>
+public sealed class BytewiseProbe : IProbe {
+
+  /// <inheritdoc/>
+  public bool Matched => false;
+
+  /// <inheritdoc/>
+  public int Probe(byte[] data) => 0;
+}
+
+/// <summary>Covers documentation inherited from an abstract base class.</summary>
+public abstract class Codec {
+
+  /// <summary>The name this codec is registered under.</summary>
+  public abstract string Name { get; }
+
+  /// <summary>Encodes <paramref name="input"/> and reports how many bytes were written.</summary>
+  public abstract int Encode(byte[] input, int offset);
+
+  /// <summary>Called once the codec has finished, whatever the outcome.</summary>
+  protected virtual void OnFinished() { }
+}
+
+// Declared BEFORE the NullCodec it derives from, so it is documented first and reaches Codec through
+// a NullCodec whose own bare inheritdoc has not been answered yet. Caching that non-answer would
+// blank NullCodec's own rows further down the page.
+/// <inheritdoc/>
+public sealed class AliasCodec : NullCodec {
+
+  /// <inheritdoc/>
+  public override string Name => "alias";
+}
+
+// The middle link of a two-level chain: every member here inherits, so anything reaching NullCodec
+// from below has to keep walking up to Codec.
+/// <inheritdoc/>
+public class NullCodec : Codec {
+
+  /// <inheritdoc/>
+  public override string Name => "null";
+
+  /// <inheritdoc/>
+  public override int Encode(byte[] input, int offset) => 0;
+
+  /// <summary>Does nothing at all, and says so in its own words.</summary>
+  /// <inheritdoc/>
+  protected override void OnFinished() { }
+}
+
+/// <summary>Covers documentation inherited across a generic interface.</summary>
+/// <typeparam name="TItem">The stored item type.</typeparam>
+public interface IStore<TItem> {
+
+  /// <summary>Everything stored so far.</summary>
+  IReadOnlyList<TItem> Items { get; }
+
+  /// <summary>Stores <paramref name="item"/>.</summary>
+  void Add(TItem item);
+
+  /// <summary>Stores many items at once.</summary>
+  void AddRange(TItem[] items);
+
+  /// <summary>Takes one item out, if there is one.</summary>
+  bool TryTake(out TItem item);
+
+  /// <summary>Folds every stored item into one value.</summary>
+  /// <typeparam name="TResult">What the fold produces.</typeparam>
+  TResult Fold<TResult>(Func<TItem, TResult, TResult> folder, TResult seed);
+}
+
+// Closes the interface over a concrete type: every inherited signature is spelled `0 on the
+// interface and int here.
+/// <inheritdoc/>
+public sealed class IntStore : IStore<int> {
+
+  /// <inheritdoc/>
+  public IReadOnlyList<int> Items => [];
+
+  /// <inheritdoc/>
+  public void Add(int item) { }
+
+  /// <inheritdoc/>
+  public void AddRange(int[] items) { }
+
+  /// <inheritdoc/>
+  public bool TryTake(out int item) {
+    item = 0;
+    return false;
+  }
+
+  /// <inheritdoc/>
+  public TResult Fold<TResult>(Func<int, TResult, TResult> folder, TResult seed) => seed;
+}
+
+/// <summary>Covers a generic interface whose parameters arrive in the other order.</summary>
+/// <typeparam name="TFirst">The first half.</typeparam>
+/// <typeparam name="TSecond">The second half.</typeparam>
+public interface IPair<TFirst, TSecond> {
+
+  /// <summary>Returns the pair the other way round.</summary>
+  IPair<TSecond, TFirst> Swap(TFirst first, TSecond second);
+}
+
+// Matching by position alone would look for Swap(TA, TB) and silently find nothing.
+/// <inheritdoc/>
+public sealed class Flipped<TA, TB> : IPair<TB, TA> {
+
+  /// <inheritdoc/>
+  public IPair<TA, TB> Swap(TB first, TA second) => null!;
+}
+
+/// <inheritdoc/>
+public sealed class StringCache : Cache<string, int> {
+
+  /// <inheritdoc/>
+  protected override void OnEvicted(string key) { }
 }
 
 /// <summary>Covers the static-class path.</summary>

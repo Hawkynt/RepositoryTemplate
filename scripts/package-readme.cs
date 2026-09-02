@@ -871,7 +871,7 @@ static class ApiExtractor {
   }
 
   static TypeDoc BuildType(Type type, XmlDocs docs, ref int undocumented) {
-    var entry = docs.Get(DocId.ForType(type));
+    var entry = docs.Get(DocId.ForType(type), Inheritance.ForType(type));
     var members = new List<MemberDoc>();
     var isEnum = type.IsEnum;
     var isDelegate = Naming.KindOf(type) == "delegate";
@@ -888,7 +888,7 @@ static class ApiExtractor {
           0));
     } else if (isEnum) {
       foreach (var f in type.GetFields(BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly)) {
-        var d = docs.Get(DocId.ForField(f));
+        var d = docs.Get(DocId.ForField(f), Inheritance.ForMember(f));
         object? raw = null;
         try { raw = f.GetRawConstantValue(); } catch { /* non-constant enum field: skip the value */ }
 
@@ -911,35 +911,35 @@ static class ApiExtractor {
         if (!Visibility.IsVisibleMember(ctor) || Naming.IsCompilerGenerated(ctor))
           continue;
 
-        Add(members, docs, ref undocumented, Naming.BareTypeName(type), Signatures.ForConstructor(ctor), DocId.ForMethod(ctor), 0);
+        Add(members, docs, ref undocumented, Naming.BareTypeName(type), Signatures.ForConstructor(ctor), DocId.ForMethod(ctor), ctor, 0);
       }
 
       foreach (var f in type.GetFields(flags)) {
         if (!Visibility.IsVisibleMember(f) || Naming.IsCompilerGenerated(f))
           continue;
 
-        Add(members, docs, ref undocumented, f.Name, Signatures.ForField(f), DocId.ForField(f), 1);
+        Add(members, docs, ref undocumented, f.Name, Signatures.ForField(f), DocId.ForField(f), f, 1);
       }
 
       foreach (var p in type.GetProperties(flags)) {
         if (!Visibility.IsVisibleProperty(p) || Naming.IsCompilerGenerated(p))
           continue;
 
-        Add(members, docs, ref undocumented, p.Name, Signatures.ForProperty(p), DocId.ForProperty(p), 2);
+        Add(members, docs, ref undocumented, p.Name, Signatures.ForProperty(p), DocId.ForProperty(p), p, 2);
       }
 
       foreach (var m in type.GetMethods(flags)) {
         if (!Visibility.IsVisibleMember(m) || Naming.IsCompilerGenerated(m) || Naming.IsAccessor(m))
           continue;
 
-        Add(members, docs, ref undocumented, Naming.MethodDisplayName(m), Signatures.ForMethod(m), DocId.ForMethod(m), m.IsSpecialName ? 4 : 3);
+        Add(members, docs, ref undocumented, Naming.MethodDisplayName(m), Signatures.ForMethod(m), DocId.ForMethod(m), m, m.IsSpecialName ? 4 : 3);
       }
 
       foreach (var e in type.GetEvents(flags)) {
         if (!Visibility.IsVisibleEvent(e) || Naming.IsCompilerGenerated(e))
           continue;
 
-        Add(members, docs, ref undocumented, e.Name, Signatures.ForEvent(e), DocId.ForEvent(e), 5);
+        Add(members, docs, ref undocumented, e.Name, Signatures.ForEvent(e), DocId.ForEvent(e), e, 5);
       }
 
       // Kind first, then name — sorting by the raw signature would order methods by return type,
@@ -980,8 +980,8 @@ static class ApiExtractor {
       isEnum);
   }
 
-  static void Add(List<MemberDoc> into, XmlDocs docs, ref int undocumented, string name, string signature, string docId, int rank) {
-    var d = docs.Get(docId);
+  static void Add(List<MemberDoc> into, XmlDocs docs, ref int undocumented, string name, string signature, string docId, MemberInfo member, int rank) {
+    var d = docs.Get(docId, Inheritance.ForMember(member));
     if (d?.Summary is null or "")
       ++undocumented;
 
@@ -1340,18 +1340,22 @@ sealed class XmlDocs {
     return docs;
   }
 
-  public DocEntry? Get(string docId) => Resolve(docId, []);
+  /// <param name="inheritable">
+  ///   Where a bare <c>&lt;inheritdoc/&gt;</c> on this member may inherit from, in order. The caller
+  ///   supplies it because it holds the reflection metadata this class deliberately does not; see
+  ///   <c>Inheritance</c>. Passing nothing leaves a bare <c>&lt;inheritdoc/&gt;</c> unresolved.
+  /// </param>
+  public DocEntry? Get(string docId, IEnumerable<string>? inheritable = null) => Resolve(docId, [], inheritable);
 
-  DocEntry? Resolve(string docId, HashSet<string> resolving) {
+  DocEntry? Resolve(string docId, HashSet<string> resolving, IEnumerable<string>? inheritable = null) {
     if (_resolved.TryGetValue(docId, out var cached))
       return cached;
 
     if (!_members.TryGetValue(docId, out var member))
       return null;
 
-    // C# 14 extension-member implementation methods deliberately carry an <inheritdoc cref="..."/>
-    // to the metadata extension member instead of duplicating its documentation. Following the cref is
-    // required by the language specification and also makes ordinary explicit-cref inheritdoc useful.
+    // Guards the cycle a chain of <inheritdoc/> can form — A inheriting from B inheriting from A —
+    // and is what makes following one safe at all.
     if (!resolving.Add(docId))
       return new DocEntry("", null);
 
@@ -1359,19 +1363,44 @@ sealed class XmlDocs {
     var example = CodeOf(member.Element("example"));
     var inheritdoc = member.Element("inheritdoc");
     var cref = inheritdoc?.Attribute("cref")?.Value;
-    if (!string.IsNullOrEmpty(cref)) {
-      var inherited = Resolve(cref, resolving);
-      if (inherited != null) {
-        if (string.IsNullOrEmpty(summary))
-          summary = inherited.Summary;
-        example ??= inherited.Example;
+
+    // C# 14 extension-member implementation methods deliberately carry an <inheritdoc cref="..."/>
+    // to the metadata extension member instead of duplicating its documentation. Following the cref is
+    // required by the language specification and also makes ordinary explicit-cref inheritdoc useful.
+    if (!string.IsNullOrEmpty(cref))
+      Absorb(Resolve(cref, resolving));
+    else if (inheritdoc != null && inheritable != null)
+      // A bare <inheritdoc/> takes the documentation of the member this one overrides or implements.
+      // The candidates are already flattened most-derived first, so a candidate that is itself an
+      // unresolved <inheritdoc/> contributes nothing and the walk simply continues past it.
+      foreach (var candidate in inheritable) {
+        if (!string.IsNullOrEmpty(summary) && example != null)
+          break;
+
+        Absorb(Resolve(candidate, resolving));
       }
-    }
 
     resolving.Remove(docId);
     var result = new DocEntry(summary, example);
-    _resolved[docId] = result;
+
+    // A member whose bare <inheritdoc/> was resolved WITHOUT its candidates has only been visited on
+    // somebody else's behalf, not answered. Caching that emptiness would make its own summary depend
+    // on which type the extractor happened to reach first.
+    if (inheritdoc == null || !string.IsNullOrEmpty(cref) || inheritable != null)
+      _resolved[docId] = result;
+
     return result;
+
+    // Documentation is inherited to fill gaps, never to replace what the member says itself.
+    void Absorb(DocEntry? inherited) {
+      if (inherited == null)
+        return;
+
+      if (string.IsNullOrEmpty(summary))
+        summary = inherited.Summary;
+
+      example ??= inherited.Example;
+    }
   }
 
   /// <summary>Collapses inline doc markup to one table-safe line.</summary>
@@ -1510,7 +1539,7 @@ static class DocId {
       : string.IsNullOrEmpty(t.Namespace) ? t.Name : t.Namespace + "." + t.Name;
   }
 
-  static string ParamId(Type t) {
+  public static string ParamId(Type t) {
     if (t.IsByRef)
       return ParamId(t.GetElementType()!) + "@";
 
@@ -1537,6 +1566,202 @@ static class DocId {
     }
 
     return (t.FullName ?? t.Name).Replace('+', '.');
+  }
+}
+
+/// <summary>
+///   Where a bare <c>&lt;inheritdoc/&gt;</c> inherits from: the documentation IDs of the same member
+///   on the base-type chain, then on the implemented interfaces, most-derived first. A type inherits
+///   from its base types, then its interfaces.
+///
+///   <para>
+///     The list is flattened rather than followed one hop at a time, which is what makes the chain
+///     transitive for free: a base member that itself carries a bare <c>&lt;inheritdoc/&gt;</c>
+///     contributes nothing and the next entry is tried.
+///   </para>
+///   <para>
+///     Nothing here can ask the runtime what a method overrides — <c>GetBaseDefinition()</c> is not
+///     available under <c>MetadataLoadContext</c> — so members are matched by name and signature.
+///   </para>
+/// </summary>
+static class Inheritance {
+  const BindingFlags Declared = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance
+                                | BindingFlags.Static | BindingFlags.DeclaredOnly;
+
+  /// <summary>
+  ///   Deliberately lazy: the walk costs reflection on every ancestor, and only a member that
+  ///   actually carries a bare <c>&lt;inheritdoc/&gt;</c> ever enumerates it.
+  /// </summary>
+  public static IEnumerable<string> ForType(Type type) {
+    foreach (var id in Guarded(() => Ancestors(type).Select(a => DocId.ForType(a.Definition)).ToList()))
+      yield return id;
+  }
+
+  /// <inheritdoc cref="ForType"/>
+  public static IEnumerable<string> ForMember(MemberInfo member) {
+    foreach (var id in Guarded(() => MemberCandidates(member)))
+      yield return id;
+  }
+
+  /// <summary>
+  ///   A base type or interface living in an assembly that cannot be resolved makes the walk throw.
+  ///   A missing summary is a far better outcome than a failed run, and the extractor already reports
+  ///   unresolvable types on their own.
+  /// </summary>
+  static List<string> Guarded(Func<List<string>> build) {
+    try {
+      return build();
+    } catch {
+      return [];
+    }
+  }
+
+  static List<string> MemberCandidates(MemberInfo member) {
+    if (member.DeclaringType is not { } declaring)
+      return [];
+
+    var ids = new List<string>();
+    foreach (var (definition, arguments) in Ancestors(declaring))
+      if (MatchIn(definition, arguments, member) is { } id)
+        ids.Add(id);
+
+    return ids;
+  }
+
+  /// <summary>
+  ///   Base types nearest first, then every implemented interface. <c>GetInterfaces()</c> returns the
+  ///   flattened set in an order metadata does not define, so the interfaces are put in a stable
+  ///   most-derived-first one: an interface that extends another always reports strictly more
+  ///   interfaces of its own, and the type's spelling breaks ties so two runs never disagree.
+  /// </summary>
+  static List<(Type Definition, Type[] Arguments)> Ancestors(Type type) {
+    var result = new List<(Type, Type[])>();
+
+    for (var b = type.BaseType; b != null; b = b.BaseType)
+      result.Add(Split(b));
+
+    result.AddRange(type.GetInterfaces()
+      .OrderByDescending(i => i.GetInterfaces().Length)
+      .ThenBy(i => i.ToString(), StringComparer.Ordinal)
+      .Select(Split));
+
+    return result;
+  }
+
+  /// <summary>
+  ///   Splits an ancestor into the definition that owns the documentation and the arguments it was
+  ///   instantiated with. The documentation ID of a member always spells the DECLARING type's generic
+  ///   parameters (<c>`0</c>), never whatever the inheriting type substituted for them.
+  /// </summary>
+  static (Type Definition, Type[] Arguments) Split(Type type) =>
+    type.IsGenericType && !type.IsGenericTypeDefinition
+      ? (type.GetGenericTypeDefinition(), type.GetGenericArguments())
+      : (type, []);
+
+  static string? MatchIn(Type definition, Type[] arguments, MemberInfo member) {
+    switch (member) {
+      case FieldInfo field: {
+        // Fields are never overridden, but one can hide a base field of the same name.
+        var found = definition.GetFields(Declared).FirstOrDefault(f => f.Name == field.Name);
+        return found == null ? null : DocId.ForField(found);
+      }
+      case EventInfo evt: {
+        var found = definition.GetEvents(Declared).FirstOrDefault(e => e.Name == evt.Name);
+        return found == null ? null : DocId.ForEvent(found);
+      }
+      case PropertyInfo property: {
+        var found = definition.GetProperties(Declared).FirstOrDefault(p =>
+          NameMatches(p.Name, property.Name, definition)
+          && SignatureMatches(p.GetIndexParameters(), property.GetIndexParameters(), arguments));
+        return found == null ? null : DocId.ForProperty(found);
+      }
+      case ConstructorInfo ctor: {
+        if (definition.IsInterface)
+          return null;
+
+        var found = definition.GetConstructors(Declared).FirstOrDefault(c =>
+          SignatureMatches(c.GetParameters(), ctor.GetParameters(), arguments));
+        return found == null ? null : DocId.ForMethod(found);
+      }
+      case MethodInfo method: {
+        var found = definition.GetMethods(Declared).FirstOrDefault(m =>
+          NameMatches(m.Name, method.Name, definition)
+          && Arity(m) == Arity(method)
+          && SignatureMatches(m.GetParameters(), method.GetParameters(), arguments)
+          // Conversion operators are told apart by their return type and nothing else.
+          && (!Naming.IsConversionOperator(method)
+              || DocId.ParamId(Substitute(m.ReturnType, arguments)) == DocId.ParamId(method.ReturnType)));
+        return found == null ? null : DocId.ForMethod(found);
+      }
+      default:
+        return null;
+    }
+  }
+
+  static int Arity(MethodInfo m) => m.IsGenericMethodDefinition ? m.GetGenericArguments().Length : 0;
+
+  /// <summary>
+  ///   An explicit interface implementation carries the interface in front of the member name
+  ///   (<c>Fixture.Package.INamed.Rename</c>), so what the interface itself declares is the last
+  ///   segment. The member name never contains a dot of its own, which makes the last one the
+  ///   separator.
+  /// </summary>
+  static bool NameMatches(string candidate, string memberName, Type definition) {
+    if (candidate == memberName)
+      return true;
+
+    var dot = memberName.LastIndexOf('.');
+    if (dot <= 0 || !definition.IsInterface || candidate != memberName[(dot + 1)..])
+      return false;
+
+    var simple = definition.Name;
+    var tick = simple.IndexOf('`');
+    return memberName[..dot].Contains(tick >= 0 ? simple[..tick] : simple, StringComparison.Ordinal);
+  }
+
+  static bool SignatureMatches(ParameterInfo[] candidate, ParameterInfo[] member, Type[] arguments) {
+    if (candidate.Length != member.Length)
+      return false;
+
+    for (var i = 0; i < candidate.Length; ++i)
+      if (DocId.ParamId(Substitute(candidate[i].ParameterType, arguments)) != DocId.ParamId(member[i].ParameterType))
+        return false;
+
+    return true;
+  }
+
+  /// <summary>
+  ///   Rewrites a signature written in the ancestor's own generic parameters into the terms the
+  ///   inheriting type sees, so the two can be compared. <c>class Ints : IStore&lt;int&gt;</c> has to
+  ///   match <c>IStore</c>'s <c>Add(`0)</c> against <c>Add(int)</c>, and
+  ///   <c>class Flipped&lt;TA, TB&gt; : IPair&lt;TB, TA&gt;</c> has to survive the reordering. A
+  ///   method's own type parameters (<c>``0</c>) belong to the method and are left alone.
+  /// </summary>
+  static Type Substitute(Type type, Type[] arguments) {
+    if (arguments.Length == 0)
+      return type;
+
+    if (type.IsGenericParameter)
+      return type.DeclaringMethod == null && type.GenericParameterPosition < arguments.Length
+        ? arguments[type.GenericParameterPosition]
+        : type;
+
+    if (type.IsByRef)
+      return Substitute(type.GetElementType()!, arguments).MakeByRefType();
+
+    if (type.IsPointer)
+      return Substitute(type.GetElementType()!, arguments).MakePointerType();
+
+    if (type.IsArray) {
+      var element = Substitute(type.GetElementType()!, arguments);
+      return type.IsSZArray ? element.MakeArrayType() : element.MakeArrayType(type.GetArrayRank());
+    }
+
+    if (!type.IsGenericType)
+      return type;
+
+    return type.GetGenericTypeDefinition()
+      .MakeGenericType(type.GetGenericArguments().Select(a => Substitute(a, arguments)).ToArray());
   }
 }
 
