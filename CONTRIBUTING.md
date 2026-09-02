@@ -61,6 +61,18 @@ same attributes:
 Six times the cost for an identical answer. A fast tier written with `Category!=` looks correct in
 every way except the clock, which is the one thing it exists for.
 
+**Filter by category, never by `FullyQualifiedName`, once a suite is large.** With the NUnit3 VSTest
+adapter, an FQN filter selecting more than roughly two thousand tests makes the adapter **execute the
+whole assembly and discard the results of the tests the filter excluded**. Measured on a 27,555-case
+suite: a 3,707-case FQN selection charged 183s of test time and took **870s of wall clock**, with 681s
+of it in pauses no test duration accounts for. Stack samples of the test host during those pauses
+showed it running tests that were not in the selection and had no entry in the results file. A
+`Category` filter does not do this at any size — the same suite filtered by category runs 22,342 cases
+in 215s with no gaps at all.
+
+The practical rule: shard by category or by assembly. An FQN shard of a large suite costs more than
+running everything.
+
 Two rules that make the difference real:
 
 - **A test in the fast tier finishes in well under a second.** If it does not, either make it so or
