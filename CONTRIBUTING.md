@@ -183,6 +183,32 @@ linter:
 actionlint .github/workflows/*.yml
 ```
 
+### When the package-README check fails
+
+The check regenerates each package's README and `REFERENCE.md` from the built assembly plus its XML
+docs, and compares. Two things about it are worth knowing before you try to debug one locally.
+
+**The generated output depends on the SDK.** CI installs a preview SDK (`dotnet-quality: preview`),
+which emits XML documentation for C# `extension(T)` members; a stable SDK does not. So a reference
+regenerated on a stable SDK loses those summaries, and one regenerated on CI gains them — the same
+source, the same command, two different correct answers. A check that passes locally can fail on CI
+for that reason alone, and a stale reference can ship because the author's SDK could not see the
+difference.
+
+**Take CI's output, do not rebuild.** The action uploads the regenerated files as a
+`package-readmes` artifact whenever the check fails, precisely so a red build is a download rather
+than a debugging session:
+
+```bash
+gh api "repos/OWNER/REPO/actions/runs/<run-id>/artifacts" \
+  --jq '.artifacts[] | select(.name=="package-readmes") | .id'
+gh api "repos/OWNER/REPO/actions/artifacts/<id>/zip" > readmes.zip
+```
+
+Diff before committing, and diff with `--strip-trailing-cr`. The check may run on a Windows runner,
+where the generator writes CRLF; against LF files in git that shows every line as changed and hides
+whether anything real moved.
+
 ## Releases
 
 Stable releases are cut manually by the maintainer:
