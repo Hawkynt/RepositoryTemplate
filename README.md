@@ -112,13 +112,24 @@ the `DontDelete` ruleset takes changes through pull requests only.
 
 | Event | What runs | Cost |
 | --- | --- | --- |
-| Push to a working branch | `generate.yml` — regenerates the derived files (screenshots, tables, docs) and commits them **straight back onto that branch**. | one small job |
-| Pull request opened or pushed to | `ci.yml` — the full test battery. A newer run supersedes the older one. | the matrix |
+| Push to a working branch | `smoke.yml` — the fast tier: one OS, fast tests only, no coverage, no package-README check. And `generate.yml` — regenerates the derived files (screenshots, tables, docs) and commits them **straight back onto that branch**. | two small jobs |
+| Pull request opened or pushed to | `ci.yml` — the full battery: every OS, every category, coverage. A newer run supersedes the older one. | the matrix |
 | Merge to `main` | `nightly.yml` — builds and publishes the nightly. It does not re-test. | one build |
 | Manual dispatch | `release.yml` — runs CI itself, packs, publishes, tags. | everything |
 
 The generation stage is what keeps the battery honest without making it expensive. By the time a
 pull request exists the derived files are already part of it, so the battery only has to *test*.
+
+The smoke stage is what keeps the battery from being *misused*. Without a fast answer on push, the
+way to find out whether your code compiles is to open a pull request — which runs the expensive tier
+ten times per change instead of once. So a push gets one OS and the quick tests, in minutes.
+
+**A test is in the fast tier unless it says otherwise.** It opts out with `[Category("Slow")]`, or
+with one of the categories that are slow by nature — `EndToEnd`, `OsIntegration`, `ExternalInterop`,
+`PolyglotInterop`, `Performance`. That direction matters: tagging every *fast* test would mean
+touching thousands of them and remembering each new one, and the one somebody forgets would drop out
+of the fast tier silently. Opting out **defers** a test and never skips one — the pull request runs
+everything. `CONTRIBUTING.md` has the table and the two rules that keep the tiers honest.
 
 Three properties make committing from a branch push safe, and all three are load-bearing:
 
@@ -140,6 +151,21 @@ proves nothing a green pull request has not already proved.
 The trade-off, stated plainly: a squash merge produces a commit no run ever saw — the pull request's
 tree on a base that may have moved. A semantic conflict between two separately green pull requests
 surfaces as a failed nightly build rather than a failed CI run.
+
+A repo's `smoke.yml` is shorter still:
+
+```yaml
+on:
+  push:
+    branches-ignore: [main]
+
+jobs:
+  smoke:
+    uses: Hawkynt/RepositoryTemplate/.github/workflows/dotnet-smoke.yml@v1
+    with:
+      solution: MyThing.sln
+      dotnet-version: '10.0.x'
+```
 
 A repo's `ci.yml` should be a dozen lines:
 
