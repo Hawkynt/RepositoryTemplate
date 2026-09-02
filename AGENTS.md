@@ -29,7 +29,7 @@ in the commit body.
 1. **Before committing**: `dotnet build ProjectName.sln -c Release` and
    `dotnet test ProjectName.sln -c Release` until green (CI runs the same on ubuntu + windows). New
    behaviour is test-first (TDD): add the failing test, then make it pass. While iterating,
-   `--filter "Category!=Slow"` is the fast tier; run the whole suite before you push.
+   `--filter "TestCategory!=Slow"` is the fast tier (`TestCategory`, not `Category` - see CONTRIBUTING.md); run the whole suite before you push.
 2. **Commit** (rules above) and **push**.
 3. **Wait for CI**; on `main` a green CI triggers the nightly (dated prerelease + GFS prune). Fix and
    loop until everything is green.

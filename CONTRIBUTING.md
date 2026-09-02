@@ -20,7 +20,7 @@ dotnet build ProjectName.sln -c Release --no-restore
 
 ```bash
 dotnet test ProjectName.sln -c Release                                   # everything
-dotnet test ProjectName.sln -c Release --filter "Category!=Slow"         # the fast tier
+dotnet test ProjectName.sln -c Release --filter "TestCategory!=Slow"     # the fast tier
 ```
 
 Tests are [NUnit](https://nunit.org). New behaviour is test-first: add the failing test, then make it
@@ -47,6 +47,19 @@ A test opts out by carrying one of these categories:
 
 **Opting out defers a test, it never skips one.** Everything runs on the pull request. The tiers
 decide *when*, not *whether*.
+
+**Write `TestCategory!=`, never `Category!=`.** They select the same tests and report the same
+results, and only one of them actually skips anything: with `Category!=` the adapter filters the
+REPORTING and still executes the excluded fixtures. Measured on a 5,489-test suite, same assembly,
+same attributes:
+
+```
+--filter "Category!=Slow"        5155 selected, 5143 passed, 12 skipped   5m17s
+--filter "TestCategory!=Slow"    5155 selected, 5143 passed, 12 skipped     52s
+```
+
+Six times the cost for an identical answer. A fast tier written with `Category!=` looks correct in
+every way except the clock, which is the one thing it exists for.
 
 Two rules that make the difference real:
 
