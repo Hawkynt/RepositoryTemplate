@@ -5,7 +5,15 @@
 [![License](https://img.shields.io/badge/license-LGPL--3.0--or--later-blue)](https://www.gnu.org/licenses/lgpl-3.0.html)
 [![CI](https://github.com/Hawkynt/RepoName/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Hawkynt/RepoName/actions/workflows/ci.yml)
 
-> One sentence stating what the package does and why a consumer would install it.
+> One sentence stating what the package does and why a consumer would install it. When the package
+> owns a DOMAIN rather than a feature, that sentence must say so outright — the domain it claims,
+> and that the claim is *everything in it*. "Pure-managed X for .NET. The package aims to cover
+> EVERY X, and tracks what it does not yet reach in <ledger>." A blurb that lists the categories
+> currently inside the box reads as a catalogue of what exists; a blurb that names the domain reads
+> as a commitment, and the gap between them is the difference between a consumer asking "does it
+> have mine?" and knowing the answer is "yes, or it is a tracked gap".
+>
+> Hedging words defeat this. "An unusually broad range of X" says the opposite of "every X".
 
 ## 📦 Installation
 
