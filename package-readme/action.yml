@@ -22,6 +22,15 @@ inputs:
     description: 'Newline-separated .csproj paths. Empty discovers every packable project.'
     required: false
     default: ''
+  exclude-namespace:
+    description: >-
+      Newline-separated namespaces to leave out of the generated reference, each matching itself and
+      anything below it. For vendored third-party source a package bundles: it is public because the
+      vendor made it public, it is not this package's API, and documenting it buries the real
+      surface. Excluding it here beats editing the vendored source, which would conflict on every
+      upstream sync.
+    required: false
+    default: ''
   dotnet-version:
     description: 'SDK channel to install when the workflow has not already set one up'
     required: false
@@ -50,6 +59,7 @@ runs:
         CONFIGURATION: ${{ inputs.configuration }}
         TARGET_FRAMEWORK: ${{ inputs.target-framework }}
         PROJECTS: ${{ inputs.project }}
+        EXCLUDE_NAMESPACES: ${{ inputs.exclude-namespace }}
       run: |
         set -euo pipefail
 
@@ -63,6 +73,9 @@ runs:
         while IFS= read -r line; do
           [ -n "$line" ] && args+=(--project "$line")
         done <<< "$PROJECTS"
+        while IFS= read -r line; do
+          [ -n "$line" ] && args+=(--exclude-namespace "$line")
+        done <<< "$EXCLUDE_NAMESPACES"
 
         # `dotnet run <file>.cs` restores the tool's own NuGet reference on first use.
         dotnet run "${{ github.action_path }}/../scripts/package-readme.cs" -- "${args[@]}"

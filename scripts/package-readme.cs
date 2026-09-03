@@ -36,6 +36,12 @@
 //                                Defaults to the newest, which is wrong for a polyfill
 //                                library whose surface is largest on the OLDEST target.
 //    --project <path>        restrict to one .csproj (repeatable)
+//    --exclude-namespace <ns>    omit types in this namespace or below it (repeatable).
+//                                For VENDORED third-party source that a package bundles: it is
+//                                public because the vendor made it public, it is not this
+//                                package's API, and documenting it buries the real surface.
+//                                Excluding it here beats editing the vendored source, which
+//                                would conflict on every upstream sync.
 //    --verbose
 //
 //  Exit: 0 success · 1 lint/drift failure · 2 bad usage or environment error.
@@ -91,6 +97,12 @@ static class Cli {
             return Fail("--project needs a value.");
 
           projects.Add(args[i]);
+          break;
+        case "--exclude-namespace":
+          if (++i >= args.Length)
+            return Fail("--exclude-namespace needs a value.");
+
+          Visibility.ExcludeNamespace(args[i]);
           break;
         case "--verbose":
           verbose = true;
@@ -782,7 +794,7 @@ static class ApiExtractor {
       var assembly = mlc.LoadFromAssemblyPath(Path.GetFullPath(assemblyPath));
 
       foreach (var type in assembly.GetTypes()) {
-        if (!Visibility.IsVisibleApi(type) || Naming.IsCompilerGenerated(type))
+        if (!Visibility.IsVisibleApi(type) || Naming.IsCompilerGenerated(type) || Visibility.IsExcludedNamespace(type))
           continue;
 
         // Two bundled assemblies can legitimately expose the same full type name; document once.
@@ -990,6 +1002,29 @@ static class ApiExtractor {
 }
 
 static class Visibility {
+
+  // Namespaces excluded with --exclude-namespace, matched on the namespace itself or any child of
+  // it. Ordinal comparison: namespaces are case-sensitive identifiers, not user-facing text.
+  static readonly List<string> _excludedNamespaces = [];
+
+  public static void ExcludeNamespace(string ns) {
+    if (!string.IsNullOrWhiteSpace(ns))
+      _excludedNamespaces.Add(ns.Trim());
+  }
+
+  /// <summary>Whether a type sits in a namespace the caller asked to leave out.</summary>
+  public static bool IsExcludedNamespace(Type t) {
+    var ns = t.Namespace;
+    if (ns == null || _excludedNamespaces.Count == 0)
+      return false;
+
+    foreach (var prefix in _excludedNamespaces)
+      if (string.Equals(ns, prefix, StringComparison.Ordinal) || ns.StartsWith(prefix + ".", StringComparison.Ordinal))
+        return true;
+
+    return false;
+  }
+
   public static bool IsVisibleApi(Type type) {
     if (type.IsPublic)
       return true;
