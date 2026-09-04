@@ -69,10 +69,11 @@ ways to take it and the choice is not cosmetic:
   the published API surface with the `exclude-namespace` input of the `package-readme` action rather
   than by editing the source.
 - **Convert it** — carry the algorithm across into this codebase properly. Converted code is *our*
-  code and follows every rule under "Code conventions": current C# language version (C# 14)
-  wherever it says the same thing more plainly, K&R braces, 2-space indent, file-scoped
-  namespaces, `this.` qualification, `_camelCase` fields, XML docs on public members, LF
-  endings. A conversion that still reads like C, or like a decompiler's output, is not finished.
+  code, so every rule under "Code conventions" applies to it, including the current C# language
+  version (C# 14) wherever that says the same thing more plainly. Do not restate those rules
+  here or anywhere else: one stale copy of them is how this guide spent years asking for a brace
+  style the code had never used. A conversion that still reads like C, or like a decompiler's
+  output, is not finished.
 
 Either way, record where it came from — a `THIRD_PARTY_NOTICES.md` in the package, or a
 `THIRD-PARTY-NOTICE.<Name>.txt` beside the code. Attribution is a licence term, not a courtesy.
