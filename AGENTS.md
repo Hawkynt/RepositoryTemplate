@@ -69,10 +69,10 @@ ways to take it and the choice is not cosmetic:
   the published API surface with the `exclude-namespace` input of the `package-readme` action rather
   than by editing the source.
 - **Convert it** — carry the algorithm across into this codebase properly. Converted code is *our*
-  code and follows every rule under "Code conventions": current C# language version (C# 14) wherever
-  it says the same thing more plainly, Allman braces, 4-space indent, file-scoped namespaces,
-  `this.` qualification, `_camelCase` fields, XML docs on public members, LF endings. A conversion
-  that still reads like C, or like a decompiler's output, is not finished.
+  code and follows every rule under "Code conventions": current C# language version (C# 14)
+  wherever it says the same thing more plainly, K&R braces, 2-space indent, file-scoped
+  namespaces, `this.` qualification, `_camelCase` fields, XML docs on public members, LF
+  endings. A conversion that still reads like C, or like a decompiler's output, is not finished.
 
 Either way, record where it came from — a `THIRD_PARTY_NOTICES.md` in the package, or a
 `THIRD-PARTY-NOTICE.<Name>.txt` beside the code. Attribution is a licence term, not a courtesy.
@@ -109,9 +109,10 @@ cannot, commit the captured expected output with a note saying what produced it.
 
 ## Code conventions
 
-- Allman braces (brace on its own line), 4-space indent for C#/csproj/props, file-scoped namespaces,
-  `_camelCase` private fields, `this.` qualification, `var` freely, single-statement `if` without
-  braces, XML docs on public members. LF line endings.
+- K&R braces (the opening brace ends the line that opens the block; `} else` and `} catch`
+  continue the closing brace's line), 2-space indent for C#/csproj/props, file-scoped
+  namespaces, `_camelCase` private fields, `this.` qualification, `var` freely,
+  single-statement `if` without braces, XML docs on public members. LF line endings.
 - Latest C# language version; `Nullable` and `ImplicitUsings` enabled (set in
   `Directory.Build.props`). Warnings-as-errors where the project enables it — do not suppress without
   justification.

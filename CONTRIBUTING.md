@@ -95,7 +95,8 @@ Two rules that make the difference real:
 
 ## Code style
 
-- Allman braces, 4-space indent (C#), file-scoped namespaces, `_camelCase` private fields, `this.`
+- K&R braces (opening brace on the same line, `} else` and `} catch` on the closing brace's
+  line), 2-space indent (C#), file-scoped namespaces, `_camelCase` private fields, `this.`
   qualification, XML docs on public members, LF endings.
 - `Nullable` and `ImplicitUsings` are enabled centrally in `Directory.Build.props`.
 
