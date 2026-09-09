@@ -1,0 +1,91 @@
+name: 'Repository README'
+description: 'Check the repository-root README against the house convention: the frame, the canonical section order, and the emoji vocabulary.'
+
+inputs:
+  mode:
+    description: 'check (fail on a blocking finding) or write (normalize the badge block in place)'
+    required: false
+    default: 'check'
+  root:
+    description: 'Repository root holding the README.md to check'
+    required: false
+    default: '.'
+  repo:
+    description: 'owner/name the badges and the H1 are checked against'
+    required: false
+    default: ${{ github.repository }}
+  gui:
+    description: >-
+      The repository ships a user interface, which makes the hero image under the pitch and the
+      "## 🖼️ Screenshots" section required. A declaration rather than a heuristic on purpose: a GUI
+      repo that has no screenshots is the case the rule exists to catch, and inferring it from
+      "does a screenshots/ directory exist" would make the rule unable to fire on exactly that repo.
+    required: false
+    default: 'false'
+  allow:
+    description: >-
+      Newline-separated rules to waive, each `rule` or `rule:argument` — `heading-missing:🛠️ Building`
+      waives that one section rather than every missing section. Every waiver is echoed into the job
+      summary, so an exemption stays visible instead of living silently in yaml.
+    required: false
+    default: ''
+  license:
+    description: 'SPDX id the License section is expected to name'
+    required: false
+    default: 'LGPL-3.0-or-later'
+  sponsor:
+    description: 'GitHub Sponsors account. Empty reads it from .github/FUNDING.yml.'
+    required: false
+    default: ''
+  paypal:
+    description: 'paypal.me account. Empty reads it from .github/FUNDING.yml.'
+    required: false
+    default: ''
+
+# No setup-node step: node is preinstalled on every GitHub runner and this is one plain script with
+# no dependencies, so installing a toolchain would cost more than the check does. And no
+# upload-artifact step either, unlike package-readme: nothing here is generated, so there would be
+# nothing to hand back — the findings themselves are the fix, and they arrive as annotations.
+runs:
+  using: composite
+  steps:
+    - name: Check the repository README
+      shell: bash
+      env:
+        MODE: ${{ inputs.mode }}
+        ROOT: ${{ inputs.root }}
+        REPO: ${{ inputs.repo }}
+        GUI: ${{ inputs.gui }}
+        ALLOW: ${{ inputs.allow }}
+        LICENSE: ${{ inputs.license }}
+        SPONSOR: ${{ inputs.sponsor }}
+        PAYPAL: ${{ inputs.paypal }}
+      run: |
+        set -euo pipefail
+
+        if [ "$MODE" != "check" ] && [ "$MODE" != "write" ]; then
+          echo "::error::mode must be 'check' or 'write', got '$MODE'."
+          exit 2
+        fi
+
+        args=(--"$MODE" "$ROOT" --repo "$REPO" --license "$LICENSE")
+        [ "$GUI" = "true" ] && args+=(--gui)
+        [ -n "$SPONSOR" ] && args+=(--sponsor "$SPONSOR")
+        [ -n "$PAYPAL" ] && args+=(--paypal "$PAYPAL")
+
+        waived=()
+        while IFS= read -r line; do
+          [ -n "$line" ] && { args+=(--allow "$line"); waived+=("$line"); }
+        done <<< "$ALLOW"
+
+        # A waived rule is an exemption from the house convention. Print it where a reviewer sees it
+        # without opening the workflow file.
+        if [ ${#waived[@]} -gt 0 ]; then
+          {
+            echo "### repo-readme waivers"
+            echo
+            for w in "${waived[@]}"; do echo "- \`$w\`"; done
+          } >> "$GITHUB_STEP_SUMMARY"
+        fi
+
+        node "${{ github.action_path }}/../scripts/repo-readme.mjs" "${args[@]}"
