@@ -457,12 +457,9 @@ function checkHero(lines, pitchEnd, ctx, report) {
     if (/!\[[^\]]*\]\([^)]*\)/.test(lines[i]) && !/img\.shields\.io|badge\.svg/.test(lines[i]))
       images.push(i + 1);
 
-  if (!ctx.gui) {
-    if (images.length)
-      report.warn('hero-unexpected', images[0],
-        'a hero image under the pitch, but the repo is not declared a GUI repo (repo-readme-gui).');
-    return;
-  }
+  // Only GUI repos are *required* to carry one. Any repo may: a logo, a diagram, a sample of the
+  // output are all legitimate hooks, and flagging them taught nobody anything.
+  if (!ctx.gui) return;
 
   if (images.length === 0)
     report.error('hero-missing', limit,
@@ -603,7 +600,13 @@ function checkLinks(readme, ctx, report) {
 
       const target = decodeURIComponent(raw.split('#')[0]);
       if (target === '') continue;
-      if (fs.existsSync(path.join(ctx.root, target))) continue;
+
+      const resolved = path.resolve(ctx.root, target);
+      // A target that climbs out of the repository is not a file reference at all: `../../releases/latest`
+      // is resolved by github.com against the blob URL, and lands on the releases page. Checking it
+      // against the filesystem would report a link that works.
+      if (!resolved.startsWith(path.resolve(ctx.root) + path.sep)) continue;
+      if (fs.existsSync(resolved)) continue;
 
       report.error('link-broken-relative', i + 1, `'${target}' does not exist in the repository.`, target);
     }
@@ -867,6 +870,11 @@ function selfTest(verbose) {
     rulesFor(good.replace('consider supporting its development', 'consider chipping in')).has('support-body'));
   ok('a broken relative link is caught',
     rulesFor(good.replace('## 🧱 Layout', '## 🧱 Layout\n\nSee [the spec](SPEC.md).')).has('link-broken-relative'));
+  // `../../releases/latest` is resolved by github.com against the blob URL and lands on the
+  // releases page — a working link that a filesystem check would call broken.
+  ok('a link that climbs out of the repo is left alone',
+    !rulesFor(good.replace('## 🧱 Layout', '## 🧱 Layout\n\nThe [latest release](../../releases/latest).'))
+      .has('link-broken-relative'));
   ok('a placeholder is caught', rulesFor(good.replace('Example', '{{REPO}}')).has('placeholder'));
 
   const gui = fs.readFileSync(path.join(FIXTURES, 'gui-no-shots.md'), 'utf8');
