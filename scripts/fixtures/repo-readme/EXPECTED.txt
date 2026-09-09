@@ -1,0 +1,17 @@
+badge-repo-mismatch	3	
+badge-required	3	ci
+emoji-reused-mapped	18	
+heading-duplicate	36	
+heading-duplicate	43	
+heading-emoji	32	
+heading-emoji	43	
+heading-missing	1	📦 Installation
+heading-missing	1	🛠️ Building
+heading-missing	1	🧭 Vision
+heading-name	13	
+heading-order	28	
+license-body	24	
+license-not-last	47	
+link-broken-relative	22	SPEC.md
+placeholder	11	
+support-body	32	

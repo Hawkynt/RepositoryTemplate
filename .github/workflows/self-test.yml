@@ -68,3 +68,18 @@ jobs:
 
       - name: version.pl reports a version for this repo
         run: perl scripts/version.pl --build
+
+      # Covers the pure logic (emoji splitting, section ranking, order, the badge block) and then
+      # compares the findings on scripts/fixtures/repo-readme/defective.md against the golden file.
+      - name: repo-readme self-test
+        run: node scripts/repo-readme.mjs --self-test
+
+      # This repo's README is the one document the checker is guaranteed to be run against, so a rule
+      # regression cannot reach `v1` — which ships instantly to every consuming repo — without failing
+      # here first. The waiver is real: a template has nothing to build, and inventing a section that
+      # says so would be documentation written to satisfy a linter.
+      - name: This repo's own README follows the convention
+        run: |
+          node scripts/repo-readme.mjs --check . \
+            --repo Hawkynt/RepositoryTemplate \
+            --allow 'heading-missing:🛠️ Building'

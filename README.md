@@ -3,43 +3,137 @@
 [![License](https://img.shields.io/github/license/Hawkynt/RepositoryTemplate)](https://github.com/Hawkynt/RepositoryTemplate/blob/main/LICENSE)
 [![Language](https://img.shields.io/github/languages/top/Hawkynt/RepositoryTemplate?color=8957D5)](https://github.com/Hawkynt/RepositoryTemplate)
 
+<!-- The CI badge points at self-test.yml, not ci.yml: ci.yml is guarded to no-op in this repo, which
+     has no solution to build, so a badge for it would be permanently grey. There are no Release,
+     Nightly or Downloads badges either — this repo ships from the moving `v1` tag and cuts no
+     releases, so those three would read "no releases" forever. -->
+[![CI](https://github.com/Hawkynt/RepositoryTemplate/actions/workflows/self-test.yml/badge.svg?branch=main)](https://github.com/Hawkynt/RepositoryTemplate/actions/workflows/self-test.yml)
 ![Last Commit](https://img.shields.io/github/last-commit/Hawkynt/RepositoryTemplate?branch=main)
-[![Issues](https://img.shields.io/github/issues/Hawkynt/RepositoryTemplate)](https://github.com/Hawkynt/RepositoryTemplate/issues)
+![Activity](https://img.shields.io/github/commit-activity/m/Hawkynt/RepositoryTemplate)
+
 [![Stars](https://img.shields.io/github/stars/Hawkynt/RepositoryTemplate?color=FFD700)](https://github.com/Hawkynt/RepositoryTemplate/stargazers)
 [![Forks](https://img.shields.io/github/forks/Hawkynt/RepositoryTemplate?color=008080)](https://github.com/Hawkynt/RepositoryTemplate/network/members)
+[![Issues](https://img.shields.io/github/issues/Hawkynt/RepositoryTemplate)](https://github.com/Hawkynt/RepositoryTemplate/issues)
+![Code Size](https://img.shields.io/github/languages/code-size/Hawkynt/RepositoryTemplate?color=4CAF50)
+![Repo Size](https://img.shields.io/github/repo-size/Hawkynt/RepositoryTemplate?color=FF9800)
 
-> Clean starting point for Hawkynt's C# repositories — the standard scaffolding, the shared CI
-> pipeline, and the reusable **`nuget-publish`** Trusted Publishing action, all in one place.
+> Clean starting point for Hawkynt's C# repositories — the standard scaffolding, the shared CI pipeline, and the reusable **`nuget-publish`** Trusted Publishing action, all in one place.
+
+## 🧭 Vision
+
+One place where the shape of a `Hawkynt/*` repository is decided, so that no repository has to decide
+it again. The scaffolding, the CI pipeline, the release machinery and the documentation conventions
+live here once and reach every consuming repo through composite actions and reusable workflows — which
+means a fix lands everywhere at once, and a repo cannot quietly drift into its own dialect.
+
+The direction is that everything a house rule asserts should also be *checked*. A convention nobody
+enforces is a convention that decays: the package README rules became `package-readme`, the repository
+README rules became `repo-readme`, and whatever is currently only written down is the next candidate.
+
+## ✨ Features
+
+- **Reusable CI** — `dotnet-ci.yml` and `dotnet-smoke.yml` carry the whole gate; a repo's own
+  `ci.yml` is a dozen lines calling one of them.
+- **Dated releases and nightlies** — build, changelog, release notes and a grandfather-father-son
+  prune of old nightlies, as one reusable workflow.
+- **Versions from files, never tags** — `stamp-version` composes each package's version from its own
+  manifest plus the commit count of its own folder, across eight language stacks.
+- **Trusted Publishing to nuget.org** — `nuget-publish` exchanges the job's OIDC token for a
+  short-lived key and fails when a package is accepted but never becomes available.
+- **Documentation that is checked, not merely requested** — `package-readme` generates each package's
+  API reference from assembly metadata and lints the result; `repo-readme` checks the repository
+  README against the house structure and emoji vocabulary.
+- **Generated files committed from a branch push** — signed, loop-free, and refusing to touch `main`.
+
+## 📦 Installation
+
+```bash
+gh repo create Hawkynt/MyNewApp --template Hawkynt/RepositoryTemplate --private --clone
+```
+
+Nothing is vendored into the new repository: it carries no `scripts/` directory, and reaches the
+tooling through `Hawkynt/RepositoryTemplate/<action>@v1`.
+
+## 🚀 Quick start
+
+Then, in the new repo:
+
+1. Replace `ProjectName` in `AGENTS.md`, `CONTRIBUTING.md`, and `Directory.Build.props` with the real
+   solution/app name, and adjust the `TargetFramework`.
+2. Rewrite the README body from [`repo-readme/TEMPLATE.md`](repo-readme/TEMPLATE.md), then switch
+   `repo-readme: true` on in `ci.yml` and `smoke.yml` so it stays that way. Rewrite the AGENTS "What
+   this is" section too.
+3. Point the workflows at the real solution and projects (they carry `ProjectName` placeholders and a
+   guard so they no-op until then).
+4. **For GUI applications, enumerate the primary dialogs/windows, add deterministic in-app demo
+   scenarios for each, reference their screenshots from the README/docs, and make `generate.yml`
+   regenerate the full set.** Do this while the UI is built, not as a later documentation cleanup.
+   Set `repo-readme-gui: true`, which makes the hero image and the screenshot tour required.
+5. Remove any part of the pipeline the project does not need (e.g. the NuGet publish step for a
+   binary-only app).
 
 ## 🧱 What's in here
 
-| Path | Purpose |
-|---|---|
-| `LICENSE` | LGPL-3.0-or-later (full LGPLv3). |
-| `README.md` | This file — the house README frame to copy: title → badges → `>` tagline → body → Support → License. |
-| `AGENTS.md` | Binding working agreement for agents and contributors (commits, the loop, code style). |
-| `CONTRIBUTING.md` | Build/test/CI/release guide. |
-| `.editorconfig` | Shared formatting (LF, 4-space C#, tabs for sln/Makefile). |
-| `.gitignore` | .NET / IDE / test / NuGet ignores. |
-| `Directory.Build.props` | Central TFM, nullable, and package/authorship metadata. |
-| `.github/FUNDING.yml` | Sponsors + PayPal button (pairs with the README `## ❤️ Support` section). |
-| `.github/workflows/` | `ci` · `_build` · `nightly` · `release` — thin, and they call the actions below. Plus `self-test`, which runs *here*. |
-| `.github/workflows/dotnet-ci.yml` | **Reusable workflow.** The whole standard CI gate; a repo's own `ci.yml` is a dozen lines calling it. |
-| `.github/workflows/nightly-publish.yml` | **Reusable workflow.** The marker, the release and the GFS prune; only the build stays per-repo. |
-| `scripts/` | `version.pl`, `update-changelog.mjs`, `prune-nightlies.mjs`, `package-readme.cs`, `commit-generated-file.sh`, `assert-generated-file.sh` — the single copy, used by the actions. |
-| `scripts/fixtures/` | The package-readme test fixture and its golden output. |
-| `nuget-publish/` | Composite action: Trusted Publishing push with an acceptance check. |
-| `stamp-version/` | Composite action: stamp per-package versions from files. |
-| `release-notes/` | Composite action: commit-prefix changelog / release notes. |
-| `prune-nightlies/` | Composite action: GFS prune of old nightly releases. |
-| `package-readme/` | Composite action + the package README template and rules. |
-| `commit-generated-file/` | Composite action: put a regenerated file straight onto the working branch, signed, no secret. |
-| `assert-generated-file/` | Composite action: fail a pull request when a generated file is stale. For what cannot be committed. |
+| Path                                    | Purpose                                                                                                                                                                          |
+| --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `LICENSE`                               | LGPL-3.0-or-later (full LGPLv3).                                                                                                                                                 |
+| `README.md`                             | This file, and a worked example of the convention below — the canonical order lives in `repo-readme/`.                                                                           |
+| `AGENTS.md`                             | Binding working agreement for agents and contributors (commits, the loop, code style).                                                                                           |
+| `CONTRIBUTING.md`                       | Build/test/CI/release guide.                                                                                                                                                     |
+| `.editorconfig`                         | Shared formatting (LF, 2-space indent, K&R braces in C#, tabs for sln/Makefile).                                                                                                 |
+| `.gitignore`                            | .NET / IDE / test / NuGet ignores.                                                                                                                                               |
+| `Directory.Build.props`                 | Central TFM, nullable, and package/authorship metadata.                                                                                                                          |
+| `.github/FUNDING.yml`                   | Sponsors + PayPal button (pairs with the README `## ❤️ Support` section).                                                                                                         |
+| `.github/workflows/`                    | `ci` · `_build` · `nightly` · `release` — thin, and they call the actions below. Plus `self-test`, which runs *here*.                                                            |
+| `.github/workflows/dotnet-ci.yml`       | **Reusable workflow.** The whole standard CI gate; a repo's own `ci.yml` is a dozen lines calling it.                                                                            |
+| `.github/workflows/nightly-publish.yml` | **Reusable workflow.** The marker, the release and the GFS prune; only the build stays per-repo.                                                                                 |
+| `scripts/`                              | `version.pl`, `update-changelog.mjs`, `prune-nightlies.mjs`, `package-readme.cs`, `repo-readme.mjs`, `commit-generated-file.sh`, `assert-generated-file.sh` — the single copy, used by the actions. |
+| `scripts/fixtures/`                     | The package-readme and repo-readme test fixtures and their golden output.                                                                                                        |
+| `nuget-publish/`                        | Composite action: Trusted Publishing push with an acceptance check.                                                                                                              |
+| `stamp-version/`                        | Composite action: stamp per-package versions from files.                                                                                                                         |
+| `release-notes/`                        | Composite action: commit-prefix changelog / release notes.                                                                                                                       |
+| `prune-nightlies/`                      | Composite action: GFS prune of old nightly releases.                                                                                                                             |
+| `package-readme/`                       | Composite action + the package README template and rules.                                                                                                                        |
+| `repo-readme/`                          | Composite action + the repository README template, the canonical section order and the emoji vocabulary.                                                                         |
+| `commit-generated-file/`                | Composite action: put a regenerated file straight onto the working branch, signed, no secret.                                                                                    |
+| `assert-generated-file/`                | Composite action: fail a pull request when a generated file is stale. For what cannot be committed.                                                                              |
 
 **Generated repos carry no `scripts/` directory.** The scripts live here once and reach every
 repo through the composite actions, so they cannot drift out of sync.
 
-## 📦 Package READMEs
+## 📝 README conventions
+
+Three facets of one convention: the README at the repository root, the README that ships inside each
+NuGet package, and the screenshots a GUI repository owes its readers. They share one emoji vocabulary,
+and a section that appears in both conventions carries the same name and emoji in both.
+
+### Repository READMEs
+
+The README at the root of every `Hawkynt/*` repo follows one structure, and the
+[`repo-readme`](repo-readme/) action enforces it. Nothing is copied into a consumer repo; the repo
+opts in on the shared workflow:
+
+```yaml
+    with:
+      repo-readme: true
+      repo-readme-gui: true     # the repo ships a user interface
+```
+
+The README is a funnel. The pitch and one hero image catch the reader, `## 🧭 Vision` and
+`## ✨ Features` say what the thing is, `## 📦 Installation` and `## 🚀 Quick start` get them running,
+`## 🖼️ Screenshots` and the free band go deeper, and everything a *contributor* needs closes the
+file. The checker reads the frame, the section order, the emoji vocabulary, the Support and License
+bodies — which it takes from `.github/FUNDING.yml`, so the README and the Sponsor button can no
+longer disagree — and every relative link.
+
+Relative links are *correct* here, which is the one place this convention deliberately contradicts the
+package one below: a repo README renders on github.com, where `[LICENSE](LICENSE)` survives a fork and
+an absolute blob URL does not.
+
+[`repo-readme/README.md`](repo-readme/README.md) is the single home of the canonical order and the
+emoji vocabulary, and [`repo-readme/TEMPLATE.md`](repo-readme/TEMPLATE.md) is the skeleton to copy.
+
+### Package READMEs
 
 Every NuGet package published from a `Hawkynt/*` repo follows one template, and the
 [`package-readme`](package-readme/) action enforces it. The template is **never copied into a
@@ -61,7 +155,7 @@ generates about 973 KB across 382 types, and a README that size is not a README 
 it and the paragraphs a consumer needs first are buried under four hundred types. The pointer is an
 absolute URL, because a package README renders on nuget.org where a relative link resolves nowhere.
 
-## 🖼️ GUI screenshots
+### GUI screenshots
 
 A GUI repository does **not** satisfy its documentation obligation with one startup-window picture.
 The README/docs must show the application's primary user-facing surfaces: every main top-level
@@ -110,12 +204,12 @@ because the startup window already has automation.
 Four stages, each doing the cheapest thing that is still true. **A push to `main` is forbidden** —
 the `DontDelete` ruleset takes changes through pull requests only.
 
-| Event | What runs | Cost |
-| --- | --- | --- |
-| Push to a working branch | `smoke.yml` — the fast tier: one OS, fast tests only, no coverage, no package-README check. And `generate.yml` — regenerates the derived files (screenshots, tables, docs) and commits them **straight back onto that branch**. | two small jobs |
-| Pull request opened or pushed to | `ci.yml` — the full battery: every OS, every category, coverage. A newer run supersedes the older one. | the matrix |
-| Merge to `main` | `nightly.yml` — builds and publishes the nightly. It does not re-test. | one build |
-| Manual dispatch | `release.yml` — runs CI itself, packs, publishes, tags. | everything |
+| Event                            | What runs                                                                                                                                                                                                                       | Cost           |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
+| Push to a working branch         | `smoke.yml` — the fast tier: one OS, fast tests only, no coverage, no package-README check. And `generate.yml` — regenerates the derived files (screenshots, tables, docs) and commits them **straight back onto that branch**. | two small jobs |
+| Pull request opened or pushed to | `ci.yml` — the full battery: every OS, every category, coverage. A newer run supersedes the older one.                                                                                                                          | the matrix     |
+| Merge to `main`                  | `nightly.yml` — builds and publishes the nightly. It does not re-test.                                                                                                                                                          | one build      |
+| Manual dispatch                  | `release.yml` — runs CI itself, packs, publishes, tags.                                                                                                                                                                         | everything     |
 
 The generation stage is what keeps the battery honest without making it expensive. By the time a
 pull request exists the derived files are already part of it, so the battery only has to *test*.
@@ -272,42 +366,34 @@ Two independent numbers, and they answer different questions:
 
 `scripts/version.pl` reads the base from whichever manifest a repo actually has:
 
-| Stack | File | Field | Composed |
-|---|---|---|---|
-| .NET | `*.csproj` / `Directory.Build.props` | `<Version>` | `X.Y.Z.BUILD` |
-| Node | `package.json` | `"version"` | `X.Y.Z+BUILD` |
-| PHP | `composer.json` | `"version"` | `X.Y.Z+BUILD` |
-| Rust | `Cargo.toml` | `[package] version` | `X.Y.Z+BUILD` |
-| Perl | `*.pm` | `$VERSION` | `X.Y.Z.BUILD` |
-| C/C++ | `CMakeLists.txt` | `project(… VERSION …)` | `X.Y.Z.BUILD` |
-| QuickBASIC | `*.SUB` / `*.BAS` | `%…_VERSION_MAJOR/_MINOR/_PATCH` | `X.Y.Z.BUILD` |
-| any | root `VERSION` | the file's contents | `X.Y.Z.BUILD` |
+| Stack      | File                                 | Field                            | Composed      |
+| ---------- | ------------------------------------ | -------------------------------- | ------------- |
+| .NET       | `*.csproj` / `Directory.Build.props` | `<Version>`                      | `X.Y.Z.BUILD` |
+| Node       | `package.json`                       | `"version"`                      | `X.Y.Z+BUILD` |
+| PHP        | `composer.json`                      | `"version"`                      | `X.Y.Z+BUILD` |
+| Rust       | `Cargo.toml`                         | `[package] version`              | `X.Y.Z+BUILD` |
+| Perl       | `*.pm`                               | `$VERSION`                       | `X.Y.Z.BUILD` |
+| C/C++      | `CMakeLists.txt`                     | `project(… VERSION …)`           | `X.Y.Z.BUILD` |
+| QuickBASIC | `*.SUB` / `*.BAS`                    | `%…_VERSION_MAJOR/_MINOR/_PATCH` | `X.Y.Z.BUILD` |
+| any        | root `VERSION`                       | the file's contents              | `X.Y.Z.BUILD` |
 
 Node, PHP and Rust are SemVer, which rejects a fourth numeric component, so their build number lands
 in build metadata (`+BUILD`). A repo with no manifest of its own just needs a root `VERSION` file.
 `.NET` projects may inherit their base from the nearest ancestor `Directory.Build.props`; the build
 number then follows the *declaring* file's folder.
 
-## 🚀 Use this template
+## 🧰 Composite actions
 
-```bash
-gh repo create Hawkynt/MyNewApp --template Hawkynt/RepositoryTemplate --private --clone
-```
+Eight of them, each doing one thing and each called by tag, never copied: `nuget-publish`,
+`stamp-version`, `release-notes`, `prune-nightlies`, `package-readme`, `repo-readme`,
+`commit-generated-file` and `assert-generated-file`.
 
-Then, in the new repo:
+Only `package-readme` and `repo-readme` carry a README of their own, because both own a convention
+that has to be written down somewhere. The other six document themselves through the `description`
+of every input in their `action.yml`, and `nuget-publish` is spelled out below because it is the one
+with a policy to configure on the far side.
 
-1. Replace `ProjectName` in `AGENTS.md`, `CONTRIBUTING.md`, and `Directory.Build.props` with the real
-   solution/app name, and adjust the `TargetFramework`.
-2. Rewrite the README body (keep the frame) and the AGENTS "What this is" section.
-3. Point the workflows at the real solution and projects (they carry `ProjectName` placeholders and a
-   guard so they no-op until then).
-4. **For GUI applications, enumerate the primary dialogs/windows, add deterministic in-app demo
-   scenarios for each, reference their screenshots from the README/docs, and make `generate.yml`
-   regenerate the full set.** Do this while the UI is built, not as a later documentation cleanup.
-5. Remove any part of the pipeline the project does not need (e.g. the NuGet publish step for a
-   binary-only app).
-
-## 📦 `nuget-publish` action
+### `nuget-publish`
 
 Publishes packages to nuget.org over
 [Trusted Publishing](https://learn.microsoft.com/nuget/nuget-org/trusted-publishing): it exchanges
@@ -339,13 +425,13 @@ jobs:
 Trusted Publishing needs a policy on nuget.org (your username ▸ Trusted Publishing) naming the
 repository and the workflow file that calls the action.
 
-| Input | Required | Default | Description |
-|---|---|---|---|
-| `packages-path` | yes | — | Directory holding the `.nupkg`/`.snupkg` files to push. |
-| `user` | no | `""` | nuget.org account name for Trusted Publishing. |
-| `nuget-token` | no | `""` | Fallback API key, used only when no policy is configured. |
-| `source` | no | `https://api.nuget.org/v3/index.json` | Push source. |
-| `timeout-seconds` | no | `900` | How long to wait for availability before failing. |
+| Input             | Required | Default                               | Description                                               |
+| ----------------- | -------- | ------------------------------------- | --------------------------------------------------------- |
+| `packages-path`   | yes      | —                                     | Directory holding the `.nupkg`/`.snupkg` files to push.   |
+| `user`            | no       | `""`                                  | nuget.org account name for Trusted Publishing.            |
+| `nuget-token`     | no       | `""`                                  | Fallback API key, used only when no policy is configured. |
+| `source`          | no       | `https://api.nuget.org/v3/index.json` | Push source.                                              |
+| `timeout-seconds` | no       | `900`                                 | How long to wait for availability before failing.         |
 
 ## ❤️ Support
 
