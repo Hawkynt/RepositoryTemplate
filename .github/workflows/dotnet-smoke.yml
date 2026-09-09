@@ -112,6 +112,28 @@ on:
         required: false
         type: string
         default: ''
+      repo-readme:
+        description: >-
+          Check the repository-root README against the house convention (see repo-readme/README.md).
+          Off by default, and set to the same value as in ci.yml.
+        required: false
+        type: boolean
+        default: false
+      repo-readme-gui:
+        description: 'The repository ships a user interface; a hero image and screenshots become required.'
+        required: false
+        type: boolean
+        default: false
+      repo-readme-root:
+        description: 'Root holding the README. Defaults to working-directory.'
+        required: false
+        type: string
+        default: ''
+      repo-readme-allow:
+        description: 'Newline-separated rules to waive, each `rule` or `rule:argument`.'
+        required: false
+        type: string
+        default: ''
 
 # A newer push to the same branch supersedes the older one. This tier exists to answer the question
 # "is the thing I just pushed broken", and only the newest push is still that question.
@@ -191,6 +213,20 @@ jobs:
       # No package-README check and no coverage here on purpose. Both belong to the pull request:
       # one is a publishing concern, the other is a reporting metric, and neither tells the author
       # of a work-in-progress push anything they need in the next minute.
+      #
+      # The repository-README check is the exception, and the same reasoning is why. It needs no
+      # build and no SDK — one node invocation over one file, inside a job that is already checked
+      # out — and a heading in the wrong place is cheapest to fix while the README is still open.
+      # After the tests, and !cancelled(), for the reason given on the package-README step in
+      # dotnet-ci.yml: a documentation check ordered ahead of the tests hides them.
+      - name: Check the repository README
+        if: ${{ !cancelled() && inputs.repo-readme }}
+        uses: Hawkynt/RepositoryTemplate/repo-readme@v1
+        with:
+          root: ${{ inputs.repo-readme-root != '' && inputs.repo-readme-root || inputs.working-directory }}
+          gui: ${{ inputs.repo-readme-gui }}
+          allow: ${{ inputs.repo-readme-allow }}
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:

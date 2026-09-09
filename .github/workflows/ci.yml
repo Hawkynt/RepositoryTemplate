@@ -24,3 +24,6 @@ jobs:
       solution: ProjectName.sln
       dotnet-version: '10.0.x'
       os-matrix: '["ubuntu-latest","windows-latest"]'
+      # Switch on together with the pull request that makes this repo's README follow the house
+      # convention (repo-readme/README.md), and add `repo-readme-gui: true` if it ships a UI.
+      repo-readme: false

@@ -109,6 +109,34 @@ on:
         required: false
         type: string
         default: ''
+      repo-readme:
+        description: >-
+          Check the repository-root README against the house convention (see repo-readme/README.md).
+          Off by default: the convention arrived after the repositories did, so switching it on is a
+          per-repo decision taken together with the pull request that makes that README conform.
+        required: false
+        type: boolean
+        default: false
+      repo-readme-gui:
+        description: >-
+          The repository ships a user interface, which makes the hero image under the pitch and the
+          "## 🖼️ Screenshots" section required.
+        required: false
+        type: boolean
+        default: false
+      repo-readme-root:
+        description: 'Root holding the README. Defaults to working-directory, like package-readme-root.'
+        required: false
+        type: string
+        default: ''
+      repo-readme-allow:
+        description: >-
+          Newline-separated rules to waive, each `rule` or `rule:argument`. Every waiver is echoed
+          into the job summary. There is deliberately no repo-readme-os: package-readme needs one
+          because its generated output differs per runner, and a text lint does not.
+        required: false
+        type: string
+        default: ''
       coverage:
         description: 'Run the separate coverage leg.'
         required: false
@@ -242,6 +270,26 @@ jobs:
           name: test-results${{ inputs.os-matrix != '' && format('-{0}', matrix.os) || '' }}
           path: '**/TestResults/*.trx'
           if-no-files-found: ignore
+
+  # A job of its own, unlike the package-README check above, because this one reads nothing but text:
+  # no build, no SDK, no matrix, no history. Running it BESIDE the tests rather than inside them means
+  # it cannot mask them — which is the failure the comment on that step describes — and it gets its
+  # own check name for about twenty seconds of runner.
+  repo-readme:
+    if: ${{ inputs.repo-readme }}
+    name: repo README
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: ${{ inputs.checkout-path }}
+
+      - uses: Hawkynt/RepositoryTemplate/repo-readme@v1
+        with:
+          root: ${{ inputs.repo-readme-root != '' && inputs.repo-readme-root || inputs.working-directory }}
+          gui: ${{ inputs.repo-readme-gui }}
+          allow: ${{ inputs.repo-readme-allow }}
 
   coverage:
     if: ${{ inputs.coverage }}
