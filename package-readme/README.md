@@ -73,6 +73,11 @@ optional heading only when it genuinely does not apply.
 Use the emoji above for these concepts. Package-specific subheadings may carry their own emoji, but
 never reuse a mapped one for a different meaning.
 
+The vocabulary is shared with the repository README convention and has one home:
+[`repo-readme/README.md`](../repo-readme/README.md). Every heading in the table above appears there
+with the identical name and emoji, so a package README and the README of the repo that publishes it
+read as one document. Change a shared heading on one side only and the two conventions have drifted.
+
 ## 🚀 Quick start
 
 Copy [`TEMPLATE.md`](https://github.com/Hawkynt/RepositoryTemplate/blob/main/package-readme/TEMPLATE.md)

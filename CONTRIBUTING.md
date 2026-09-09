@@ -109,6 +109,10 @@ import/open/add flows, editors/configuration dialogs, export/save/publish flows,
 reports, and substantial wizards. Do not multiply screenshots for trivial confirmation boxes or
 visually identical variants.
 
+One of them is the hero shot and goes directly under the README's pitch, with no heading — it is the
+image that decides whether a reader keeps reading. The rest are the tour, under `## 🖼️ Screenshots`.
+A repo that sets `repo-readme-gui: true` on the shared workflow has both checked.
+
 Each documented surface needs an application-owned demo scenario. Prefer a hidden/documentation-only
 startup option such as `--screenshot-demo=<scenario>:<output>` or an equivalent internal entry point
 that opens the real UI in a deterministic state and writes the image without operator interaction.
@@ -221,6 +225,21 @@ gh api "repos/OWNER/REPO/actions/artifacts/<id>/zip" > readmes.zip
 Diff before committing, and diff with `--strip-trailing-cr`. The check may run on a Windows runner,
 where the generator writes CRLF; against LF files in git that shows every line as changed and hides
 whether anything real moved.
+
+### When the repo-README check fails
+
+Nothing above applies. This one reads one file and generates nothing, so there is no artifact to
+fetch, no SDK to match and no line endings to argue with — reproduce it in full with one command:
+
+```bash
+curl -sL https://raw.githubusercontent.com/Hawkynt/RepositoryTemplate/v1/scripts/repo-readme.mjs -o /tmp/repo-readme.mjs
+node /tmp/repo-readme.mjs --check . --repo OWNER/REPO
+```
+
+Every finding names the rule that produced it and the line it sits on, and CI reports them as
+annotations on the diff. `--write` fixes the badge block; the rest are prose decisions, which is why
+they are left to a person. The rules and the canonical order are in
+[`repo-readme/README.md`](https://github.com/Hawkynt/RepositoryTemplate/blob/main/repo-readme/README.md).
 
 ## Releases
 

@@ -124,14 +124,24 @@ cannot, commit the captured expected output with a note saying what produced it.
 
 ## README & repo conventions
 
-- Standard frame: title → grouped shields.io badges → one-line `>` blockquote → body →
-  `## ❤️ Support` (Sponsors + PayPal, mirrors `.github/FUNDING.yml`) → `## 📜 License`.
+- Standard frame: title → grouped shields.io badges → one-line `>` blockquote → for a GUI repo one
+  hero image → body → `## ❤️ Support` (Sponsors + PayPal, mirrors `.github/FUNDING.yml`) →
+  `## 📜 License`. The body is a funnel: Vision and Features say what the thing is, Installation and
+  Quick start get the reader running, the free band goes deeper, and what a *contributor* needs —
+  dependencies, building, contributing, issues — comes last.
+- **The canonical section order and the emoji vocabulary live in [`repo-readme/README.md`](repo-readme/README.md),
+  and the `repo-readme` action enforces them.** One emoji means one thing, a section shared with the
+  package convention carries the same name and emoji on both sides, and `## 📜 License` is the last
+  heading in the file. The tables are not reproduced here for the reason given under "Sourcing an
+  implementation": one stale copy is how this guide spent years asking for a brace style the code had
+  never used.
 - **GUI repositories document the whole primary UI, not merely the startup window.** Every main
   top-level window/dialog that represents a distinct user workflow or substantial state needs a
   committed screenshot: the main window plus relevant settings/preferences, import/open/add,
   editor/configuration, export/save/publish, preview/results/report, wizard, and comparable primary
   surfaces. Tiny confirmations, trivial message boxes, and duplicate variants do not need their own
-  image.
+  image. A GUI repo sets `repo-readme-gui: true` on the shared workflow, which makes both the single
+  hero image under the pitch and the `## 🖼️ Screenshots` tour required rather than merely expected.
 - GUI screenshots are **generated documentation**, never hand-maintained glamour shots. The
   application itself must expose a documentation/demo mode that can populate each screenshot surface
   with deterministic, plausible, visually useful demo data. Reuse the real production controls,
