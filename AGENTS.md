@@ -59,6 +59,40 @@ Never write a format, codec, cipher or compression scheme out of your own unders
 somebody has already got it right. Work **down** this ladder, stop at the first rung that applies,
 and say in the commit body which rung you used and why the ones above it did not.
 
+**0 — One of our own packages already owns it.** Before the ladder below, check. These packages are
+published, and each owns the byte-level parsing and writing of everything in its domain:
+
+| Package | Owns |
+| --- | --- |
+| `Hawkynt.FileFormats.Images` | still and animated images, including icon and cursor containers — ICO, CUR, ANI, ICNS, Xcursor — and their frame payloads |
+| `Hawkynt.FileFormats.Archives` | archives and general containers |
+| `Hawkynt.FileFormats.FileSystems` | on-disk volumes and their directory structures |
+| `Hawkynt.FileFormats.Audio` | audio containers and codecs |
+| `Hawkynt.FileFormats.Video` | video containers and codecs |
+| `Hawkynt.Compression.Core` | compression and entropy-coding primitives |
+| `Hawkynt.Algorithms.Hashing`, `.Checksums` | digests and checksums |
+
+Take a `PackageReference` and use it. If it is *nearly* right, fix it there and consume the fix — a
+correction in the package reaches every consumer, a correction in your copy reaches one.
+
+**The codec/container split is the line, not the folder.** One file can legitimately be two things:
+an `.ico` is an image to a viewer and a listable container of images to an archive tool, so both
+`Images` and `Archives` may expose a view of it. What must not happen is both *parsing* it. The
+owning package parses; the other package's view delegates. Capabilities that belong to the view
+rather than to the bytes — enumerating entries, modifying in place, descriptor metadata — stay with
+the view.
+
+**Why this is a rung and not a preference.** This repository has already paid for it inside a single
+package: 195 readers each kept two copies of their parse, one taking a span and one taking an array,
+and the Prism Paint size correction landed in only one of them. The corpus read files by name and
+reported them perfect while the by-bytes tests failed against a reader that looked correct. The note
+in `FormatRegistration.cs` states the conclusion plainly — *a second copy is a correction waiting to
+be applied to only half of it* — and that is just as true one level up, where the two copies are in
+different packages and no single test suite sees both.
+
+So: if you are about to add a parser for a format the table above already covers, you are adding the
+second copy. Say so and stop.
+
 **1 — Licence-compatible source you can take.** MIT, BSD, Apache-2.0, LGPL, public domain: anything
 this repository's LGPL-3.0-or-later can absorb. Search for it before writing anything. There are two
 ways to take it and the choice is not cosmetic:
