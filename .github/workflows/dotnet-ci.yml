@@ -166,6 +166,27 @@ on:
         required: false
         type: number
         default: 120
+      setup-command:
+        description: >-
+          A shell command run before restore, for system packages the tests need — a codec, a
+          rendering stack, a conformance oracle. Empty runs nothing.
+
+          This is the tier those belong in. `dotnet-smoke.yml` has the same input and says so
+          itself: anything only the slow categories require belongs in the pull-request job. Until
+          now that job had no way to install anything, so a third-party oracle the tests shell out
+          to was simply absent from the runner, and every test needing it reported `Skipped` —
+          green, and proving nothing. PNGCrushCS carried 166 `[VerifiedBy(FFmpeg)]` claims that no
+          CI run has ever checked. Install the tool here and the claim is actually gated.
+
+          It runs on every runner in `os-matrix`, so guard by platform yourself when the matrix is
+          mixed: `if [ "$RUNNER_OS" = "Linux" ]; then sudo apt-get install -y ffmpeg; fi`. The step
+          uses bash, which the Windows runners have too.
+
+          Keep it to what the gate genuinely needs. This job already costs a full matrix, and a
+          package that takes minutes to install and gates nothing is latency on every pull request.
+        required: false
+        type: string
+        default: ''
 
 # A newer run for the same pull request supersedes the older one. Three pushes in a row used to
 # queue three full matrices and run all of them.
@@ -228,6 +249,11 @@ jobs:
         with:
           mode: stamp
           path: ${{ inputs.working-directory }}
+
+      - name: Setup
+        if: ${{ inputs.setup-command != '' }}
+        shell: bash
+        run: ${{ inputs.setup-command }}
 
       - name: Restore
         working-directory: ${{ inputs.working-directory }}
@@ -336,6 +362,11 @@ jobs:
         with:
           mode: stamp
           path: ${{ inputs.working-directory }}
+
+      - name: Setup
+        if: ${{ inputs.setup-command != '' }}
+        shell: bash
+        run: ${{ inputs.setup-command }}
 
       - name: Test with coverage
         working-directory: ${{ inputs.working-directory }}
